@@ -57,7 +57,7 @@ cd /opt/xhs-monitor
 sudo bash scripts/deploy.sh deploy
 ```
 
-脚本依次运行：检查 Ubuntu → 检查项目应用文件 → 检查 Docker/Compose → 保留已有 `.env` → 持久化数据目录 → 检查 Compose 服务 → 如数据库存在先做 SQLite 一致性备份 → `docker compose -p xhs-monitor up -d --build --wait` → 显示本项目容器状态。
+脚本依次运行：检查 Ubuntu → 检查项目应用文件 → 检查 Docker/Compose → 保留已有 `.env` → 持久化数据目录 → 检查 Compose 服务 → 如数据库存在先做 SQLite 一致性备份 → `docker compose -p xhs-monitor up -d --build --wait` → 显示容器状态 → **在 worker 内启动 Chromium 并验证浏览器沙箱可运行**。此测试不访问小红书，也不代表真实竞品销量采集可用。
 
 当前提交包含 Compose，但**不代表你的 VPS 已完成部署**。如果 80/443 端口已经被其他应用占用，必须先调整代理架构，不能直接启动第二套 Caddy。即使三项容器正常启动，也不能将未获取来源许可的商品标记为“销量监控成功”。
 
@@ -124,6 +124,15 @@ sudo bash scripts/deploy.sh doctor
 - [Playwright Docker](https://playwright.dev/docs/docker)
 - [SQLite 在线备份](https://sqlite.org/backup.html)
 - [SQLite WAL](https://sqlite.org/wal.html)
+
+### 采集容器浏览器自检
+
+```bash
+cd /opt/xhs-monitor
+docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml exec -T worker npm run worker:smoke
+```
+
+如果 Chromium 测试失败，一键部署会返回非零退出码，服务保持运行以供调试；**不要**通过默认增加 `--no-sandbox` 来隐藏安全问题。根据系统 Docker 版本、用户命名空间与 seccomp 规则排查。
 
 ## 7. 目前已知限制（2026-10-18）
 
