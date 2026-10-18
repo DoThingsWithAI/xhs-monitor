@@ -1,0 +1,31 @@
+name: Validate Ubuntu deployment script
+
+on:
+  push:
+    paths:
+      - 'scripts/deploy.sh'
+      - '.github/workflows/validate-deploy.yml'
+  pull_request:
+    paths:
+      - 'scripts/deploy.sh'
+      - '.github/workflows/validate-deploy.yml'
+  workflow_dispatch:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax
+        run: bash -n scripts/deploy.sh
+      - name: CLI usage
+        run: bash scripts/deploy.sh help
+      - name: Doctor (no host modifications)
+        run: bash scripts/deploy.sh doctor
+      - name: ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck -S warning scripts/deploy.sh
