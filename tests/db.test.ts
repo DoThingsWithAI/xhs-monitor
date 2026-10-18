@@ -10,7 +10,12 @@ test('authorization defaults to disabled; scheduling and claiming are durable',a
  const {db}=await import('../packages/db');
  const {createProduct,scheduleDue,claimJob}=await import('../packages/db/queue');
  const d=db();
- const result=createProduct('https://www.xiaohongshu.com/explore/abc123');
+ const result=createProduct('https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf?xsec_token=PRIVATE_SHARE_TOKEN&instation_link=nested_token&share_id=track');
+ assert.equal((d.prepare('SELECT platform_product_id FROM products WHERE id=?').get(result.id) as {platform_product_id:string}).platform_product_id,'6a290d7c3222c60001e051bf');
+ assert.equal((d.prepare('SELECT canonical_url FROM products WHERE id=?').get(result.id) as {canonical_url:string}).canonical_url,'https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf');
+ assert.equal((d.prepare('SELECT original_url FROM products WHERE id=?').get(result.id) as {original_url:string}).original_url,'https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf');
+ assert.equal(createProduct('https://m.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf?share_id=second').created,false);
+ assert.equal((d.prepare('SELECT count(*) AS n FROM products').get() as {n:number}).n,1);
  assert.equal(result.created,true);
  assert.equal(result.monitoring,'awaiting_source_authorization');
  assert.equal(scheduleDue(),0);
@@ -27,5 +32,20 @@ test('authorization defaults to disabled; scheduling and claiming are durable',a
  assert.equal(claimJob('other-owner'),null);
  assert.equal((d.prepare('SELECT count(*) AS n FROM collection_jobs').get() as {n:number}).n,1);
  assert.equal((d.prepare('SELECT count(*) AS n FROM collection_runs').get() as {n:number}).n,1);
+});
+test('legacy stored share URLs are reused and scrubbed when re-added',async()=>{
+ const {db,uuid}=await import('../packages/db');
+ const {createProduct}=await import('../packages/db/queue');
+ const d=db(), id=uuid(), stamp=Date.now();
+ const old='https://www.xiaohongshu.com/goods-detail/7a290d7c3222c60001e051bf?instation_link=PRIVATE&share_id=private';
+ d.prepare('INSERT INTO products (id,original_url,canonical_url,created_at,updated_at) VALUES (?,?,?,?,?)')
+   .run(id,old,old,stamp,stamp);
+ const result=createProduct('https://www.xiaohongshu.com/goods-detail/7a290d7c3222c60001e051bf?xsec_token=OTHER');
+ assert.equal(result.created,false);
+ assert.equal(result.id,id);
+ const stored=d.prepare('SELECT canonical_url,original_url,platform_product_id FROM products WHERE id=?').get(id) as {canonical_url:string;original_url:string;platform_product_id:string};
+ assert.equal(stored.canonical_url,'https://www.xiaohongshu.com/goods-detail/7a290d7c3222c60001e051bf');
+ assert.equal(stored.original_url,stored.canonical_url);
+ assert.equal(stored.platform_product_id,'7a290d7c3222c60001e051bf');
 });
 test.after(()=>rmSync(path,{recursive:true,force:true}));

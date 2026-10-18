@@ -15,9 +15,10 @@ export async function POST(req:NextRequest){
  const urls=Array.isArray(body.urls)?body.urls:[body.url];
  if(urls.length>20||urls.length===0)return NextResponse.json({error:'MAX_20_ITEMS'},{status:400});
  const results=[];
- for(const url of urls){
-  try{results.push({...createProduct(url,typeof body.category==='string'?body.category:''),url});}
-  catch(e){results.push({url,error:e instanceof Error?e.message:'INVALID_URL'});}
+ for(const [index,url] of urls.entries()){
+  // Never echo share tokens or nested tracking URLs back to the client.
+  try{results.push({index,...createProduct(url,typeof body.category==='string'?body.category:'')});}
+  catch(e){results.push({index,error:e instanceof Error?e.message:'INVALID_URL'});}
  }
  return NextResponse.json({data:results},{status:201});
 }
