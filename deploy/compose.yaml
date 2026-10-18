@@ -35,7 +35,9 @@ services:
     user: "10001:10001"
     shm_size: "512mb"
     mem_limit: 1536m
-    security_opt: ["no-new-privileges:true"]
+    security_opt:
+      - "no-new-privileges:true"
+      - "seccomp=./deploy/seccomp_profile.json"
     networks: [internal]
   caddy:
     image: caddy:2-alpine
