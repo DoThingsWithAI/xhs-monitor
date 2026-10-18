@@ -1,19 +1,33 @@
 import { isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
 
-export function normalizedProductUrl(value: string): string {
-  if (typeof value !== 'string' || value.length > 2000) throw new Error('INVALID_URL');
+/**
+ * Stable identity for a Xiaohongshu goods-detail link.
+ * Strip all share/referral tokens (including nested instation_link) without storing them.
+ * Nested itemId in the share payload is NOT the product ID.
+ */
+export function parseXhsGoodsUrl(value: string): { productId: string; canonicalUrl: string } {
+  if (typeof value !== 'string' || value.trim().length > 8192) throw new Error('INVALID_URL');
   let url: URL;
   try { url = new URL(value.trim()); } catch { throw new Error('INVALID_URL'); }
   if (url.protocol !== 'https:' || url.username || url.password || url.port) throw new Error('INVALID_URL');
-  const h = url.hostname.toLowerCase();
-  if (!['xiaohongshu.com','www.xiaohongshu.com','m.xiaohongshu.com','www.xiaohongshu.com.cn'].includes(h))
+
+  const hostname = url.hostname.toLowerCase();
+  if (!['xiaohongshu.com', 'www.xiaohongshu.com', 'm.xiaohongshu.com', 'www.xiaohongshu.com.cn'].includes(hostname))
     throw new Error('UNSUPPORTED_HOST');
-  url.hash = '';
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^(utm_|xsec_|share|track|timestamp|source|appuid)/i.test(key)) url.searchParams.delete(key);
-  }
-  return url.toString();
+
+  const match = /^\/goods-detail\/([a-f0-9]{24})\/?$/i.exec(url.pathname);
+  if (!match) throw new Error('UNSUPPORTED_PRODUCT_URL');
+
+  const productId = match[1].toLowerCase();
+  return {
+    productId,
+    canonicalUrl: 'https://www.xiaohongshu.com/goods-detail/' + productId
+  };
+}
+
+export function normalizedProductUrl(value: string): string {
+  return parseXhsGoodsUrl(value).canonicalUrl;
 }
 
 export function safeHostname(hostname: string, allowed: string[]): boolean {
