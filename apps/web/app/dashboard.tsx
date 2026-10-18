@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useState,useCallback} from 'react';
+import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
 type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
@@ -39,7 +40,7 @@ export default function Dashboard({username}:{username:string}){
  const [runs,setRuns]=useState<Run[]>([]),[alerts,setAlerts]=useState<Alert[]>([]),[sources,setSources]=useState<Source[]>([]);
  const [urls,setUrls]=useState(''),[category,setCategory]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const [detailId,setDetailId]=useState<string|null>(null),[history,setHistory]=useState<Observation[]>([]);
- const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:'h1',salesSelector:'',priceSelector:'',shopSelector:''});
+ const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:XHS_GOODS_SELECTORS.title,salesSelector:XHS_GOODS_SELECTORS.sales,priceSelector:XHS_GOODS_SELECTORS.price,shopSelector:XHS_GOODS_SELECTORS.shop});
  const refresh=useCallback(async()=>{
   try{
    const [p,s,r,a,so]=await Promise.all([api<Product[]>('/api/products'),api<{stats:Stats}>('/api/system'),api<Run[]>('/api/runs'),api<Alert[]>('/api/alerts'),api<Source[]>('/api/sources')]);
@@ -53,7 +54,7 @@ export default function Dashboard({username}:{username:string}){
   try{sel=JSON.parse(s.selectors_json);}catch{}
   setSourceForm({enabled:!!s.enabled,automated_access_allowed:!!s.automated_access_allowed,
    storage_allowed:!!s.storage_allowed,analysis_allowed:!!s.analysis_allowed,permission_basis:s.permission_basis||'',
-   titleSelector:sel.title||'h1',salesSelector:sel.sales||'',priceSelector:sel.price||'',shopSelector:sel.shop||''});
+   titleSelector:sel.title||XHS_GOODS_SELECTORS.title,salesSelector:sel.sales||XHS_GOODS_SELECTORS.sales,priceSelector:sel.price||XHS_GOODS_SELECTORS.price,shopSelector:sel.shop||XHS_GOODS_SELECTORS.shop});
  },[sources.length]); // Fetch refresh does not erase unsaved edits
  async function add(){
   const items=urls.split(/[\n\r]+/).map(s=>s.trim()).filter(Boolean);

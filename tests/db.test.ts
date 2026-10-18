@@ -10,6 +10,10 @@ test('authorization defaults to disabled; scheduling and claiming are durable',a
  const {db}=await import('../packages/db');
  const {createProduct,scheduleDue,claimJob}=await import('../packages/db/queue');
  const d=db();
+ const originalSelectors=JSON.parse((d.prepare("SELECT selectors_json FROM data_sources WHERE id='xhs-browser'").get() as {selectors_json:string}).selectors_json);
+ assert.equal(originalSelectors.sales,'.price-container .spu-text');
+ assert.equal(originalSelectors.price,'.price-container .price');
+ assert.equal((d.prepare("SELECT enabled FROM data_sources WHERE id='xhs-browser'").get() as {enabled:number}).enabled,0);
  const result=createProduct('https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf?xsec_token=PRIVATE_SHARE_TOKEN&instation_link=nested_token&share_id=track');
  assert.equal((d.prepare('SELECT platform_product_id FROM products WHERE id=?').get(result.id) as {platform_product_id:string}).platform_product_id,'6a290d7c3222c60001e051bf');
  assert.equal((d.prepare('SELECT canonical_url FROM products WHERE id=?').get(result.id) as {canonical_url:string}).canonical_url,'https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf');

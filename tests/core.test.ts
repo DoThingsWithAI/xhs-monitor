@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseSales,parsePrice,compareSales} from '../packages/core/metrics';
 import {normalizedProductUrl,parseXhsGoodsUrl,safeHostname} from '../packages/core/urls';
+import {XHS_GOODS_SELECTORS} from '../packages/core/source-selectors';
 test('exact zero is not missing', () => assert.deepEqual(parseSales('已售 0'),{raw:'已售 0',value:0,precision:'exact'}));
 test('lower-bound display not exact', () => assert.deepEqual(parseSales('已售 1.2万+'),{raw:'已售 1.2万+',value:12000,precision:'lower_bound'}));
 test('missing sales is null', () => assert.equal(parseSales(undefined).value,null));
@@ -35,4 +36,14 @@ test('reject note link, malformed product IDs, and untrusted hosts',()=>{
  assert.throws(()=>normalizedProductUrl('https://www.xiaohongshu.com/explore/abc123'),/UNSUPPORTED_PRODUCT_URL/);
  assert.throws(()=>normalizedProductUrl('https://www.xiaohongshu.com/goods-detail/xyz'),/UNSUPPORTED_PRODUCT_URL/);
  assert.throws(()=>normalizedProductUrl('https://xiaohongshu.com.evil.example/goods-detail/6a290d7c3222c60001e051bf'),/UNSUPPORTED_HOST/);
+});
+
+test('goods-detail snapshot: product-level sales, current price and selectors', () => {
+ assert.deepEqual(parseSales('已售431'),{raw:'已售431',value:431,precision:'exact'});
+ assert.equal(parsePrice('¥19.9').cents,1990);
+ assert.equal(parsePrice('¥39').cents,3900);
+ assert.equal(XHS_GOODS_SELECTORS.sales,'.price-container .spu-text');
+ assert.equal(XHS_GOODS_SELECTORS.price,'.price-container .price');
+ assert.equal(XHS_GOODS_SELECTORS.title,'.goods-name');
+ assert.equal(XHS_GOODS_SELECTORS.shop,'.seller-name');
 });

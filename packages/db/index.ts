@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { XHS_GOODS_SELECTORS, XHS_GOODS_LEGACY_DEFAULT_SELECTORS } from '../core/source-selectors';
 
 export const DB_PATH = process.env.DB_PATH || join(process.env.XHS_DATA_DIR || '/data','xhs-monitor.sqlite');
 let cached: Database.Database | undefined;
@@ -22,8 +23,14 @@ export function initSchema(d: Database.Database): void {
   d.prepare('INSERT OR IGNORE INTO data_sources (id,name,kind,enabled,automated_access_allowed,storage_allowed,analysis_allowed,permission_basis,minimum_interval_seconds,allowed_hosts_json,selectors_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(
     'xhs-browser','XHS browser (permission required)','licensed_browser',0,0,0,0,'',86400,
     JSON.stringify(['xiaohongshu.com','xhscdn.com']),
-    JSON.stringify({title:'h1',sales:'',price:'',shop:''}),stamp,stamp
+    JSON.stringify(XHS_GOODS_SELECTORS),stamp,stamp
   );
+  // Upgrade only the untouched, disabled v1 placeholder. Never overwrite
+  // user-selected selectors, and never enable automated collection by migration.
+  d.prepare(`UPDATE data_sources SET selectors_json=?,updated_at=?
+    WHERE id='xhs-browser' AND enabled=0 AND automated_access_allowed=0
+    AND selectors_json=?`).run(JSON.stringify(XHS_GOODS_SELECTORS),
+      stamp,JSON.stringify(XHS_GOODS_LEGACY_DEFAULT_SELECTORS));
 }
 export function uuid() { return randomUUID(); }
 export function audit(action: string, entity: string, id?: string) {
