@@ -33,7 +33,7 @@ on_error() {
   write_state "failed $(date -u +%Y-%m-%dT%H:%M:%SZ) exit=${rc}" "last-status"
   log "FAILED (exit=${rc}); check: journalctl -u xhs-monitor-auto-update.service -n 100 --no-pager" >&2
 }
-trap 'on_error "$?"' ERR
+trap 'rc=$?; if [[ "${rc}" -ne 0 ]]; then on_error "${rc}"; fi' EXIT
 
 [[ -d "${REPO_DIR}/.git" ]] || die "Not a Git checkout: ${REPO_DIR}"
 command -v git >/dev/null || die "git is missing."
