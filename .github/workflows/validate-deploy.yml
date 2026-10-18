@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - 'scripts/deploy.sh'
+      - 'scripts/auto-update.sh'
+      - 'deploy/systemd/**'
       - '.github/workflows/validate-deploy.yml'
   pull_request:
     paths:
       - 'scripts/deploy.sh'
+      - 'scripts/auto-update.sh'
+      - 'deploy/systemd/**'
       - '.github/workflows/validate-deploy.yml'
   workflow_dispatch:
 
@@ -19,13 +23,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Bash syntax
-        run: bash -n scripts/deploy.sh
+        run: bash -n scripts/deploy.sh scripts/auto-update.sh
       - name: CLI usage
         run: bash scripts/deploy.sh help
       - name: Doctor (no host modifications)
         run: bash scripts/deploy.sh doctor
+      - name: Verify daily 08:00 systemd schedule and units
+        run: |
+          sed 's|@REPO_DIR@|/opt/xhs-monitor|g' deploy/systemd/xhs-monitor-auto-update.service > /tmp/xhs-monitor-auto-update.service
+          sed 's|@AUTO_DEPLOY_TIMEZONE@|Asia/Shanghai|g' deploy/systemd/xhs-monitor-auto-update.timer > /tmp/xhs-monitor-auto-update.timer
+          systemd-analyze calendar '*-*-* 08:00:00 Asia/Shanghai'
+          systemd-analyze verify /tmp/xhs-monitor-auto-update.service /tmp/xhs-monitor-auto-update.timer
+          grep -q 'Persistent=true' /tmp/xhs-monitor-auto-update.timer
       - name: ShellCheck
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
-          shellcheck -S warning scripts/deploy.sh
+          shellcheck -S warning scripts/deploy.sh scripts/auto-update.sh
