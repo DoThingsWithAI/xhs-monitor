@@ -1,0 +1,38 @@
+# Secrets / local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# SQLite / snapshots / runtime state
+/data/
+data/
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.db-wal
+*.db-shm
+/backups/
+*.trace.zip
+
+# Node / Next.js / Playwright
+node_modules/
+.pnpm-store/
+.next/
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
+.DS_Store
+
+# Debug traces and screenshots
+logs/
+traces/
+screenshots/
