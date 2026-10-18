@@ -1,8 +1,14 @@
 import {chromium,type Browser} from 'playwright';
 import {assertPublicWebUrl} from '../core/urls';
 import {parsePrice,parseSales} from '../core/metrics';
+import {parseShopRating,parseShopStats} from '../core/shop-metrics';
+import {XHS_GOODS_SELECTORS} from '../core/source-selectors';
 
-export type ObservationData={title:string|null;shop:string|null;sales:ReturnType<typeof parseSales>;price:ReturnType<typeof parsePrice>};
+export type ObservationData={
+ title:string|null;shop:string|null;sales:ReturnType<typeof parseSales>;price:ReturnType<typeof parsePrice>;
+ shopRating:ReturnType<typeof parseShopRating>;
+ shopSales:ReturnType<typeof parseSales>;shopFollowers:ReturnType<typeof parseSales>;
+};
 export class CollectError extends Error {
  constructor(public code:string, public transient=false,public status:number|null=null){super(code);}
 }
@@ -42,8 +48,17 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
   const salesRaw=await take('sales');
   const priceRaw=await take('price');
   const shop=await take('shop');
-  if(!title&&!salesRaw&&!priceRaw)throw new CollectError('PARSER_NO_FIELDS');
-  return {title,shop,sales:parseSales(salesRaw),price:parsePrice(priceRaw)};
+  // Shop sales and followers are identified by label; never mix them with item sales.
+  // Fallback supports old custom source selector JSON without shop keys.
+  const shopStatLabels=await page.locator(sel.shopStats||XHS_GOODS_SELECTORS.shopStats)
+    .allTextContents({timeout:5000}).catch(()=>[]);
+  const ratingText=await page.locator(sel.shopRating||XHS_GOODS_SELECTORS.shopRating)
+    .first().textContent({timeout:5000}).catch(()=>null);
+  const shopMetrics=parseShopStats(shopStatLabels);
+  if(!title&&!salesRaw&&!priceRaw&&!shop&&!shopMetrics.shopSales.raw&&!shopMetrics.shopFollowers.raw)
+    throw new CollectError('PARSER_NO_FIELDS');
+  return {title,shop,sales:parseSales(salesRaw),price:parsePrice(priceRaw),
+    shopRating:parseShopRating(ratingText),...shopMetrics};
  }catch(e){
   if(e instanceof CollectError)throw e;
   if(String(e).includes('Timeout'))throw new CollectError('TIMEOUT',true);

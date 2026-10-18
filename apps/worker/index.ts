@@ -14,8 +14,20 @@ function persist(job:JobRow,obs:Awaited<ReturnType<typeof collectAllowedBrowserP
   const run=d.prepare('SELECT id FROM collection_runs WHERE job_id=? AND attempt_no=?').get(job.id,job.attempt_count) as {id:string};
   const previous=d.prepare('SELECT * FROM product_observations WHERE product_id=? AND source_id=? ORDER BY observed_at DESC LIMIT 1').get(job.product_id,job.source_id) as any;
   const quality=obs.sales.value===null?'partial':'success';
-  d.prepare('INSERT OR IGNORE INTO product_observations (id,product_id,source_id,job_id,run_id,observed_at,sales_raw_text,sales_value,sales_precision,price_raw_text,price_minor,price_kind,title_observed,shop_observed,quality_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-   .run(uuid(),job.product_id,job.source_id,job.id,run.id,ts,obs.sales.raw,obs.sales.value,obs.sales.precision,obs.price.raw,obs.price.cents,obs.price.kind,obs.title,obs.shop,quality);
+  d.prepare(`INSERT OR IGNORE INTO product_observations (
+    id,product_id,source_id,job_id,run_id,observed_at,
+    sales_raw_text,sales_value,sales_precision,price_raw_text,price_minor,price_kind,
+    title_observed,shop_observed,quality_status,
+    shop_rating_raw_text,shop_rating_hundredths,
+    shop_sales_raw_text,shop_sales_value,shop_sales_precision,
+    shop_followers_raw_text,shop_followers_value,shop_followers_precision
+  ) VALUES (${Array(23).fill('?').join(',')})`).run(
+    uuid(),job.product_id,job.source_id,job.id,run.id,ts,
+    obs.sales.raw,obs.sales.value,obs.sales.precision,obs.price.raw,obs.price.cents,obs.price.kind,
+    obs.title,obs.shop,quality,
+    obs.shopRating.raw,obs.shopRating.hundredths,
+    obs.shopSales.raw,obs.shopSales.value,obs.shopSales.precision,
+    obs.shopFollowers.raw,obs.shopFollowers.value,obs.shopFollowers.precision);
   d.prepare('UPDATE products SET title=COALESCE(?,title),shop_name=COALESCE(?,shop_name),updated_at=? WHERE id=?').run(obs.title,obs.shop,ts,job.product_id);
   d.prepare('UPDATE collection_runs SET result=?,finished_at=? WHERE id=?').run(quality,ts,run.id);
   d.prepare("UPDATE collection_jobs SET status=?,lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?")

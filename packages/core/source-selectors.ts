@@ -5,7 +5,9 @@ export const XHS_GOODS_SELECTORS = {
   title: '.goods-name',
   sales: '.price-container .spu-text',
   price: '.price-container .price',
-  shop: '.seller-name',
+  shop: '.seller-container .seller-name',
+  shopRating: '.seller-container .score-text',
+  shopStats: '.seller-container .name-info .sub-title',
 } as const;
 
 export const XHS_GOODS_LEGACY_DEFAULT_SELECTORS =
