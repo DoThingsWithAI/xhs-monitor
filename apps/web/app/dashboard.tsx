@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useState,useCallback} from 'react';
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
@@ -8,7 +8,18 @@ type Alert={id:string;type:string;severity:string;occurrences:number;last_seen_a
 type Observation={observed_at:number;sales_raw_text:string|null;sales_value:number|null;sales_precision:string;price_minor:number|null;quality_status:string};
 const date=(value:number|null|undefined)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
 const yuan=(c:number|null|undefined)=>c===null||c===undefined?'—':'¥'+(c/100).toFixed(2);
-function statusName(status:string){return ({ready:'监控已排期',awaiting_authorization:'等待来源授权',blocked:'来源已阻断',active:'正常',paused:'已暂停',deleted:'已删除'} as Record<string,string>)[status]||status;}
+function statusName(p:Product){
+ if(p.monitor_status==='paused')return '已暂停';
+ if(p.binding_status==='awaiting_authorization')return '等待来源授权';
+ if(p.binding_status==='blocked')return '来源已阻断';
+ if(p.binding_status!=='ready')return '未准备就绪';
+ if(p.latest_job_status==='queued' && !p.last_success_at)return '首次采集排队中';
+ if(p.latest_job_status==='running' && !p.last_success_at)return '首次采集中';
+ if(p.latest_job_status==='retry_wait')return '采集失败，等待重试';
+ if(p.latest_job_status==='failed' && !p.last_success_at)return '首次采集失败';
+ if(p.latest_job_status==='partial' && !p.last_success_at)return '首次采集部分成功';
+ return '监控已排期';
+}
 async function api<T>(path:string,options?:RequestInit):Promise<T>{
  const res=await fetch(path,{...options,cache:'no-store',headers:{'Content-Type':'application/json',...options?.headers}});
  if(res.status===401){location.href='/login';throw new Error('登录已过期');}
@@ -50,7 +61,8 @@ export default function Dashboard({username}:{username:string}){
   setBusy(true);setMessage('');
   try{const result=await api<Array<{created?:boolean;error?:string;monitoring?:string}>>('/api/products',{method:'POST',body:JSON.stringify({urls:items,category})});
    const ok=result.filter(x=>!x.error).length;
-   setMessage('已处理 '+ok+'/'+result.length+' 个商品。未经授权的来源将显示“等待来源授权”。');
+   const queued=result.filter(x=>x.monitoring==='queued').length;
+   setMessage('已处理 '+ok+'/'+result.length+' 个商品，其中 '+queued+' 个已自动加入首次采集队列。没有来源许可的商品将等待授权。');
    setUrls('');await refresh();
   }catch(e){setMessage(e instanceof Error?e.message:'添加失败');}finally{setBusy(false);}
  }
@@ -95,7 +107,7 @@ export default function Dashboard({username}:{username:string}){
      <div className="table-scroll"><table><thead><tr><th>商品 / 店铺</th><th>展示销量</th><th>价格</th><th>状态</th><th>最近有效数据</th><th>操作</th></tr></thead><tbody>
       {products.map(p=><tr key={p.id}><td><strong>{p.title||'待采集商品名称'}</strong><small>{p.shop_name||p.category||'—'}</small><a href={p.canonical_url} target="_blank" rel="noopener noreferrer">原始商品链接 ↗</a></td>
        <td>{p.sales_raw_text||'未知'}<small>{p.sales_precision||'无数据'}</small></td><td>{yuan(p.price_minor)}</td>
-       <td><span className={'tag '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p.binding_status||'awaiting_authorization')}</span></td>
+       <td><span className={'tag '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p)}</span></td>
        <td>{date(p.last_success_at)}</td><td><button className="text-button" onClick={()=>void showDetail(p.id)}>历史</button> <button className="text-button" onClick={()=>void updateProduct(p.id,p.monitor_status==='active'?'paused':'active')}>{p.monitor_status==='active'?'暂停':'恢复'}</button></td>
       </tr>)}
       {!products.length&&<tr><td colSpan={6} className="empty">还没有商品。添加链接后系统会检查来源许可并创建监控任务。</td></tr>}

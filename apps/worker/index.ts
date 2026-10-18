@@ -64,10 +64,16 @@ async function main(){
   try{
    heartbeat('worker');
    scheduleDue();
-   let n=0,job:JobRow|null;
-   while(running&&(job=claimJob(owner))&&n++<30){await processOne(job);heartbeat('worker');}
+   let n=0;
+   while(running && n<30){
+     const job:JobRow|null=claimJob(owner);
+     if(!job)break;
+     n++;
+     await processOne(job);
+     heartbeat('worker');
+   }
   }catch(e){console.error(JSON.stringify({event:'worker_loop_error',message:e instanceof Error?e.name:'unknown'}));}
-  if(running)await sleep(30000);
+  if(running)await sleep(5000);
  }
  await closeBrowser();
 }

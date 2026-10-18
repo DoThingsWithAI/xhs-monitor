@@ -5,7 +5,7 @@ import {createProduct} from '@/packages/db/queue';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 export async function GET(req:NextRequest){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
- const rows=db().prepare("SELECT p.*,b.status AS binding_status,b.last_success_at,b.next_due_at,b.consecutive_failures, o.sales_raw_text,o.sales_precision,o.price_minor,o.observed_at FROM products p LEFT JOIN product_source_bindings b ON b.product_id=p.id AND b.source_id='xhs-browser' LEFT JOIN product_observations o ON o.id=(SELECT id FROM product_observations WHERE product_id=p.id ORDER BY observed_at DESC LIMIT 1) WHERE p.monitor_status<>'deleted' ORDER BY p.created_at DESC LIMIT 150").all();
+ const rows=db().prepare("SELECT p.*,b.status AS binding_status,b.last_success_at,b.next_due_at,b.consecutive_failures, (SELECT j.status FROM collection_jobs j WHERE j.binding_id=b.id ORDER BY j.created_at DESC, j.rowid DESC LIMIT 1) AS latest_job_status, o.sales_raw_text,o.sales_precision,o.price_minor,o.observed_at FROM products p LEFT JOIN product_source_bindings b ON b.product_id=p.id AND b.source_id='xhs-browser' LEFT JOIN product_observations o ON o.id=(SELECT id FROM product_observations WHERE product_id=p.id ORDER BY observed_at DESC LIMIT 1) WHERE p.monitor_status<>'deleted' ORDER BY p.created_at DESC LIMIT 150").all();
  return NextResponse.json({data:rows});
 }
 export async function POST(req:NextRequest){

@@ -7,6 +7,29 @@ export function permissionOk(s:any,now=Date.now()) {
    s.analysis_allowed===1 && typeof s.permission_basis==='string' && s.permission_basis.trim().length>=12 &&
    (s.permission_expires_at===null || s.permission_expires_at>now);
 }
+/** Add a persisted, due-now job in the same transaction as the binding. */
+function enqueueImmediate(d:ReturnType<typeof db>, bindingId:string, ts:number, reason:string):boolean {
+ const key=bindingId+':'+reason;
+ const r=d.prepare('INSERT OR IGNORE INTO collection_jobs (id,binding_id,scheduled_for,status,idempotency_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
+  .run(uuid(),bindingId,ts,'queued',key,ts,ts);
+ return r.changes>0;
+}
+/** Activate only waiting, active products; saving settings repeatedly creates no duplicates. */
+export function activateAwaitingBindings(d:ReturnType<typeof db>, sourceId:string, ts=Date.now()):number {
+ const source=d.prepare('SELECT * FROM data_sources WHERE id=?').get(sourceId) as any;
+ if(!source || !permissionOk(source,ts))return 0;
+ const bindings=d.prepare("SELECT b.id,b.interval_seconds FROM product_source_bindings b JOIN products p ON p.id=b.product_id WHERE b.source_id=? AND b.status='awaiting_authorization' AND p.monitor_status='active'")
+  .all(sourceId) as {id:string;interval_seconds:number}[];
+ const update=d.prepare("UPDATE product_source_bindings SET status='ready',next_due_at=?,blocked_reason=NULL,updated_at=? WHERE id=? AND status='awaiting_authorization'");
+ const cancel=d.prepare("UPDATE collection_jobs SET status='cancelled',updated_at=? WHERE binding_id=? AND status IN ('queued','retry_wait')");
+ let count=0;
+ for(const b of bindings) {
+  cancel.run(ts,b.id);
+  if(update.run(ts+b.interval_seconds*1000,ts,b.id).changes && enqueueImmediate(d,b.id,ts,'activation:'+ts))count++;
+ }
+ return count;
+}
+
 export function createProduct(url:string,category='') {
  const { productId, canonicalUrl:link }=parseXhsGoodsUrl(url),d=db(),ts=Date.now();
  const source=d.prepare('SELECT * FROM data_sources WHERE id=?').get('xhs-browser') as any;
@@ -37,7 +60,8 @@ export function createProduct(url:string,category='') {
    d.prepare('INSERT INTO products (id,platform_product_id,original_url,canonical_url,category,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
     .run(id,productId,link,link,category.slice(0,100),ts,ts);
    d.prepare('INSERT INTO product_source_bindings (id,product_id,source_id,status,interval_seconds,next_due_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
-    .run(bindingId,id,source.id,authorized?'ready':'awaiting_authorization',Math.max(86400,source.minimum_interval_seconds),ts,ts,ts);
+    .run(bindingId,id,source.id,authorized?'ready':'awaiting_authorization',Math.max(86400,source.minimum_interval_seconds),authorized?ts+Math.max(86400,source.minimum_interval_seconds)*1000:ts,ts,ts);
+   if(authorized)enqueueImmediate(d,bindingId,ts,'initial');
    return {id,created:true,canonicalUrl:link,monitoring:authorized?'queued':'awaiting_source_authorization'};
  })();
 }
