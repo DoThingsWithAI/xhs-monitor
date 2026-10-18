@@ -59,9 +59,15 @@ def inspect(connection, product_id):
         "WHERE b.product_id=? ORDER BY b.created_at DESC LIMIT 1", (pid,)
     ).fetchone()
 
+    columns = {row["name"] for row in connection.execute("PRAGMA table_info(product_observations)")}
+    optional = ("shop_observed", "shop_rating_raw_text", "shop_rating_hundredths",
+                "shop_sales_raw_text", "shop_sales_value", "shop_sales_precision",
+                "shop_followers_raw_text", "shop_followers_value", "shop_followers_precision")
+    # Existing SQLite databases may not yet have applied the additive migration.
+    safe_columns = ", ".join((name if name in columns else "NULL AS " + name) for name in optional)
     latest_observation = connection.execute(
         "SELECT observed_at, sales_raw_text, sales_value, sales_precision, price_minor,"
-        " quality_status FROM product_observations "
+        " quality_status, " + safe_columns + " FROM product_observations "
         "WHERE product_id=? ORDER BY observed_at DESC LIMIT 1", (pid,)
     ).fetchone()
     latest_sales = connection.execute(
@@ -162,6 +168,15 @@ def main():
                   "| 数值:", latest["sales_value"],
                   "| 精度:", latest["sales_precision"],
                   "| 质量:", latest["quality_status"])
+            print("店铺名称:", latest["shop_observed"] or "未抓到")
+            print("店铺口碑:", latest["shop_rating_raw_text"] or "未抓到",
+                  "| 整数百分位:",latest["shop_rating_hundredths"])
+            print("店铺已售:", latest["shop_sales_raw_text"] or "未抓到",
+                  "| 数值:",latest["shop_sales_value"],
+                  "| 精度:",latest["shop_sales_precision"])
+            print("店铺粉丝:", latest["shop_followers_raw_text"] or "未抓到",
+                  "| 数值:",latest["shop_followers_value"],
+                  "| 精度:",latest["shop_followers_precision"])
         else:
             print("最新观察: 无")
         valid=result["latest_nonnull_sales"]
