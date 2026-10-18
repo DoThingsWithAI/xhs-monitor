@@ -24,25 +24,27 @@ export function sessionValue(id:string):string {
  return payload+'.'+signature;
 }
 export function sessionCookieName(){return COOKIE;}
-export function getAdmin(req:NextRequest):{id:string;username:string}|null {
- const token=req.cookies.get(COOKIE)?.value;
- if(!token) return null;
+
+export function getAdminFromToken(token:string|undefined):{id:string;username:string}|null {
+ if(!token)return null;
  const [payload,sig]=token.split('.');
- if(!payload || !sig || payload.length>2000) return null;
+ if(!payload || !sig || payload.length>2000)return null;
  const expected=createHmac('sha256',secret()).update(payload).digest('base64url');
- if(sig.length!==expected.length || !timingSafeEqual(Buffer.from(sig),Buffer.from(expected))) return null;
+ if(sig.length!==expected.length || !timingSafeEqual(Buffer.from(sig),Buffer.from(expected)))return null;
  let p:{id:string;expires:number};
- try {p=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));}catch{return null;}
+ try{p=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));}catch{return null;}
  if(!p || typeof p.id!=='string' || !Number.isFinite(p.expires) || p.expires<Date.now())return null;
  const row=db().prepare('SELECT id,username FROM admin_users WHERE id=?').get(p.id) as {id:string;username:string}|undefined;
  return row??null;
 }
+
+export function getAdmin(req:NextRequest){ return getAdminFromToken(req.cookies.get(COOKIE)?.value); }
 export function sameOrigin(req:NextRequest): boolean {
  const origin=req.headers.get('origin');
  if(!origin)return false;
  try {
    const u=new URL(origin);
    const host=req.headers.get('x-forwarded-host')||req.headers.get('host');
-   return u.protocol==='https:' && u.host===host && host===process.env.APP_DOMAIN;
+   return u.host===host && ((u.protocol==='https:' && host===process.env.APP_DOMAIN) || (process.env.NODE_ENV!=='production' && u.protocol==='http:' && /^localhost(:\d+)?$/.test(host||'')));
  } catch {return false;}
 }
