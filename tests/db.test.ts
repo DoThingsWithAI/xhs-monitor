@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+const path=mkdtempSync(join(tmpdir(),'xhs-monitor-'));
+process.env.DB_PATH=join(path,'test.sqlite');
+
+test('authorization defaults to disabled; scheduling and claiming are durable',async()=>{
+ const {db}=await import('../packages/db');
+ const {createProduct,scheduleDue,claimJob}=await import('../packages/db/queue');
+ const d=db();
+ const result=createProduct('https://www.xiaohongshu.com/explore/abc123');
+ assert.equal(result.created,true);
+ assert.equal(result.monitoring,'awaiting_source_authorization');
+ assert.equal(scheduleDue(),0);
+ assert.equal((d.prepare('SELECT count(*) AS n FROM collection_jobs').get() as {n:number}).n,0);
+ const now=Date.now();
+ d.prepare("UPDATE data_sources SET enabled=1,automated_access_allowed=1,storage_allowed=1,analysis_allowed=1,permission_basis='License documented for internal monitoring',updated_at=? WHERE id='xhs-browser'").run(now);
+ d.prepare("UPDATE product_source_bindings SET status='ready' WHERE product_id=?").run(result.id);
+ assert.equal(scheduleDue(),1);
+ assert.equal(scheduleDue(),0);
+ const job=claimJob('test-owner');
+ assert.ok(job);
+ assert.equal(job?.product_id,result.id);
+ assert.equal(job?.attempt_count,1);
+ assert.equal(claimJob('other-owner'),null);
+ assert.equal((d.prepare('SELECT count(*) AS n FROM collection_jobs').get() as {n:number}).n,1);
+ assert.equal((d.prepare('SELECT count(*) AS n FROM collection_runs').get() as {n:number}).n,1);
+});
+test.after(()=>rmSync(path,{recursive:true,force:true}));
