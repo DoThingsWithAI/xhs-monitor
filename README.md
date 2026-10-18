@@ -27,6 +27,30 @@ https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf
 
 这只是商品链接解析功能：**尚未验证该商品的真实名称、价格、销量及其可自动采集权限**。没有获得许可的数据来源时，仍会显示「等待来源授权」。
 
+## 商品字段样本适配（2026-10-19）
+
+用户提供的一份商城商品详情页面 HTML 中，商品「已售431」、当前展示价「¥19.9」（1990 分）；页面另有店铺的「已售426」和对比价格「¥39」，**不能混为一个字段**。
+
+样本已验证选择器：
+
+| 采集字段 | CSS 选择器 |
+| --- | --- |
+| 商品标题 | `.goods-name` |
+| 当前价 | `.price-container .price` |
+| 商品展示已售 | `.price-container .spu-text` |
+| 店铺名称 | `.seller-name` |
+
+这些选择器已作为**默认建议**写入程序（不会自动开启数据源或覆盖现有自定义设置），另有脱敏合成 HTML 的 Playwright 烟测。静态网页 HTML 解析只是字段适配；**不是生产 VPS 上的实时采集成功证明**。
+
+只读检查单个商品的 SQLite 数据（在 VPS 执行）：
+
+```bash
+cd /opt/xhs-monitor
+XHS_DATA_DIR=/var/lib/xhs-monitor python3 scripts/check-sales.py 6a290d7c3222c60001e051bf
+```
+
+检查会输出来源绑定状态、Worker 心跳、运行记录、最近有效观察和最近一次非空销量值，不更改数据库。
+
 ## 已实现功能
 
 - 单管理员：交互式创建管理员账号、加盐 scrypt 密码校验和带签名的 HttpOnly 会话

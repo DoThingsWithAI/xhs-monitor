@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-19 — 商品价格和销量 DOM 字段定位（v1.1.3）
+
+- 基于用户上传的商品详情页面 HTML，确认商品展示「已售431」、展示价格「¥19.9」，另有对比价「¥39」和店铺统计「已售426」；严格区分商品指标与店铺指标。
+- 采集 CSS 选择器：`.goods-name`、`.price-container .spu-text`、`.price-container .price`、`.seller-name`。
+- 新数据源初始化默认选择器改为经该快照验证的字段，仅对旧版仍关闭、从未配置的默认记录进行非破坏升级，**保持自动访问许可开关关闭**。
+- 增加 431/1990 分单元测试、SQLite 默认值检查及 Playwright Chromium 最小 DOM 冒烟测试。
+- HTML 静态解析不等于生产实时采集，实际 VPS 数据还需用 `python3 scripts/check-sales.py` 核对。
+
+
 ## 2026-10-18 — goods-detail 链接兼容与隐私修复（v1.1.2）
 
 - 核实用户提供的 `goods-detail` 链接可由 URL 路径解析 24 位商品 ID，不能把分享参数里的嵌套 `itemId` 误当作该商品 ID。
