@@ -40,7 +40,7 @@ export function claimJob(owner:string):JobRow|null {
  const d=db(),ts=Date.now();
  return d.transaction(()=>{
   const row=d.prepare(
-   "SELECT j.id,j.binding_id,j.attempt_count,b.product_id,b.source_id,p.canonical_url,s.selectors_json,s.allowed_hosts_json FROM collection_jobs j JOIN product_source_bindings b ON b.id=j.binding_id JOIN products p ON p.id=b.product_id WHERE (j.status='queued' OR (j.status='retry_wait' AND j.next_retry_at<=?) OR (j.status='running' AND j.lease_expires_at<=?)) AND b.status='ready' AND p.monitor_status='active' ORDER BY j.scheduled_for LIMIT 1"
+   "SELECT j.id,j.binding_id,j.attempt_count,b.product_id,b.source_id,p.canonical_url,s.selectors_json,s.allowed_hosts_json FROM collection_jobs j JOIN product_source_bindings b ON b.id=j.binding_id JOIN products p ON p.id=b.product_id JOIN data_sources s ON s.id=b.source_id WHERE (j.status='queued' OR (j.status='retry_wait' AND j.next_retry_at<=?) OR (j.status='running' AND j.lease_expires_at<=?)) AND b.status='ready' AND p.monitor_status='active' ORDER BY j.scheduled_for LIMIT 1"
   ).get(ts,ts) as JobRow|undefined;
   if(!row)return null;
   const changed=d.prepare("UPDATE collection_jobs SET status='running',lease_owner=?,lease_expires_at=?,attempt_count=attempt_count+1,updated_at=? WHERE id=?").run(owner,ts+120000,ts,row.id);
