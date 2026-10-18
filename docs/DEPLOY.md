@@ -1,6 +1,6 @@
 # Ubuntu VPS 部署和维护指南
 
-> 项目：`DoThingsWithAI/xhs-monitor` · 版本：部署脚本 v1.0 · 2026-10-18
+> 项目：`DoThingsWithAI/xhs-monitor` · 版本：部署脚本 v1.1 · 2026-10-19
 >
 > **当前状态：Web、Playwright Worker、SQLite schema、Compose 均已提交且 GitHub CI 已通过单元测试、类型检查与 Web 构建。尚未在用户 VPS 上部署，且真实竞品商品数据源/销量字段尚未经过授权及实测。**
 
@@ -72,7 +72,48 @@ docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml exec web np
 
 Playwright 实际采集前，需要对数据源取得明确的自动访问、存储和内部分析许可，并在「数据源与设置」中维护许可说明及经过测试的 CSS 字段选择器；若页面不提供展示销量，该字段仍会保持缺失。
 
-## 4. 后续升级、查看状态和备份
+
+## 4. 每天 08:00 自动拉取 GitHub 并部署（systemd）
+
+**已实现**：每次手动运行 `bash scripts/deploy.sh deploy` 且部署成功后，脚本会自动安装并启用 Ubuntu 的 `xhs-monitor-auto-update.timer`。对于已经部署过的旧版本，只需在 VPS 上运行下面这段**一次性**初始化命令，以后无需手动拉代码或重新部署：
+
+```bash
+cd /opt/xhs-monitor
+git pull --ff-only
+bash scripts/deploy.sh schedule
+bash scripts/deploy.sh schedule-status
+```
+
+- **执行时间**：每天 **08:00（北京时间 `Asia/Shanghai`）**，与 VPS 系统时区无关；支持在 `.env` 中设置 `AUTO_DEPLOY_TIMEZONE=Asia/Shanghai`，修改后重新执行 `schedule` 生效。
+- **自动流程**：检查 Docker/Git/仓库 → 对比 `origin/main` → 若没有新提交且此前部署成功则不重启 → 有新提交则 `git merge --ff-only` → **先构建 Web/Worker 镜像并使用临时数据库跑测试、使用本地 HTML 验证 Chromium** → 备份真实 SQLite → `docker compose up -d --no-build --wait` → 保存成功的 Git SHA。
+- **失败处理**：保留本地已跟踪文件改动；禁止 `git reset --hard` 和强制拉取。构建/预检查失败时不替换正在运行的旧容器；切换容器后的运行时失败会由 systemd 记录为失败，**不能承诺自动回滚数据库或服务**，应查看日志并修复。第二天仍会重试尚未标记部署成功的版本。
+- **防重复**：使用 `flock` 锁，避免手动更新与 08:00 定时任务并发。服务器断电错过 08:00 时，`Persistent=true` 会在 timer 恢复运行时补执行一次。
+- **范围**：只更新 **`DoThingsWithAI/xhs-monitor` 主分支** 和专属 `xhs-monitor` Docker Compose 项目，不重建或删除其他容器、不清空 SQLite 数据，也不改动其他 systemd timer。无新提交时不执行重建。
+- **信任边界**：这是**自动执行 GitHub `main` 分支最新代码**。请使用保护分支、代码审查与 GitHub Actions；不要把写权限给不可信的人。预检不能代替代码审计。
+
+### 常用管理命令
+
+```bash
+# 计划是否已启用、下次北京时间 8 点何时触发、最近一次结果
+bash scripts/deploy.sh schedule-status
+systemctl list-timers xhs-monitor-auto-update.timer --all
+
+# 查看昨天/今天的自动部署日志
+journalctl -u xhs-monitor-auto-update.service -n 120 --no-pager
+
+# 手动立即触发同一 systemd 更新逻辑（不必等到明天 8 点）
+systemctl start xhs-monitor-auto-update.service
+
+# 可选：停止未来自动部署，不影响当前 web/worker/caddy 运行
+bash scripts/deploy.sh unschedule
+```
+
+服务结果状态在 root 专用目录 `/var/lib/xhs-monitor-deploy/` 中，`last-status` 和 `last-success-sha` 不包含登录凭据。systemd 的退出状态与 journal 日志会反映部署故障，**当前没有邮件/微信/Telegram 主动通知功能**。
+
+**与“商品销量采集定时任务”的区别**：每天 08:00 更新的是应用本身（GitHub 代码、Docker 镜像）；商品销量抓取依旧由常驻 Playwright Worker 按每个商品的 `interval_seconds` 独立执行，二者互不等同。
+
+
+## 5. 后续升级、查看状态和备份
 
 ```bash
 # 仅 main 分支且没有本地已跟踪文件修改时，快进拉取并重新部署
@@ -106,7 +147,7 @@ sudo bash scripts/deploy.sh doctor
 - 当前备份命令需人工/任务调度器触发，**没有自动异地上传或备份清理功能**。M4 应添加每日调度、保留策略、异地加密备份和恢复演练。
 - 要恢复时先停止应用写入，验证备份完整性后恢复数据库文件；恢复操作需单独制定并测试 SOP，脚本故意不提供危险的覆盖命令。
 
-## 5. 生产安全和网络注意事项
+## 6. 生产安全和网络注意事项
 
 1. 仓库公开：`.env`、登录凭证、Cookies、SQLite、截图、Trace **绝不**入库。
 2. 此脚本不会修改 UFW/iptables、SSH 或 80/443 端口。Docker 发布容器端口可能绕开 UFW 规则；配置服务时必须检查绑定地址和 Docker 防火墙策略。
@@ -117,7 +158,7 @@ sudo bash scripts/deploy.sh doctor
 7. 完成部署后，还须根据 PRD 真实验证**授权数据源**和连续无人值守计划任务，才算“竞品自动监控上线”。
 8. 任何开发变动必须同时更新 `docs/PRD.md` 和 `docs/CHANGELOG.md`。
 
-## 6. 官方参考
+## 7. 官方参考
 
 - [Docker Ubuntu 安装](https://docs.docker.com/engine/install/ubuntu/)
 - [Docker Compose](https://docs.docker.com/compose/install/linux/)
@@ -134,7 +175,7 @@ docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml exec -T wor
 
 如果 Chromium 测试失败，一键部署会返回非零退出码，服务保持运行以供调试；**不要**通过默认增加 `--no-sandbox` 来隐藏安全问题。根据系统 Docker 版本、用户命名空间与 seccomp 规则排查。
 
-## 7. 目前已知限制（2026-10-18）
+## 8. 目前已知限制（2026-10-18）
 
 - 当前项目的自动采集适配器支持**获得明确许可的网页和可配置 CSS 字段**，但尚无经验证的小红书竞品销量字段选择器或合规可用数据源；上线数据真实性仍需单独验收。
 - Node/Next 构建和数据库队列回归测试已在 GitHub CI 通过；Docker 镜像是否能在**你的实际 VPS** 正常运行沙箱仍待部署验证。

@@ -88,6 +88,21 @@ docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml exec web np
 >
 > 系统能按时执行任务并不表示已获取真实小红书订单数据。“已售 1.2万+”只能代表展示门槛值变化，而不是精确新成交订单。
 
+## 每天 08:00 自动更新部署（北京时间）
+
+**无需每天人工更新代码。** 初次成功执行 `bash scripts/deploy.sh deploy` 后，自动启用 `systemd timer`；老用户仅需在 Ubuntu VPS 上执行一次：
+
+```bash
+cd /opt/xhs-monitor
+git pull --ff-only
+bash scripts/deploy.sh schedule
+bash scripts/deploy.sh schedule-status
+```
+
+定时器每天北京时间 08:00 检查 GitHub `main` 分支：没有新提交则跳过；有新提交则先构建、运行单元测试和 Chromium 烟测、备份 SQLite，再替换本项目容器并做健康检查。失败记录在 `journalctl -u xhs-monitor-auto-update.service` 中；不会覆盖本地修改或强制重置仓库。重启错过的计划会补执行。时区可通过 `.env` 的 `AUTO_DEPLOY_TIMEZONE` 修改。
+
+这与 **Playwright 商品销量的采集计划** 是两件不同的事。详细说明：[自动部署运维指南](docs/DEPLOY.md)。
+
 ## 开发
 
 ```bash

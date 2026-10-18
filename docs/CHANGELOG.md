@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-19 — Ubuntu 08:00 自动更新部署（v1.1.4）
+
+- 新增 `scripts/auto-update.sh`、`deploy/systemd/xhs-monitor-auto-update.service` 与 `.timer`：每日北京时间 08:00 自动检查 GitHub main 分支，有新版本则部署；无变更则跳过重启。
+- `scripts/deploy.sh` 增加 `schedule`、`schedule-status`、`unschedule`，首次成功部署自动安装计划任务；`update` 与自动任务使用同一进程锁。
+- 更新分为预构建+临时数据库单元测试+Chromium 烟测、在线 SQLite 备份、启动并等待健康检查三个阶段；禁止覆盖本地修改或强制重置 Git。
+- 日志和成功 SHA 记录在 root 目录/systemd journal；服务器重启导致错过触发时自动补执行。
+- 部署定时任务不代表“自动采集竞品销量”；实际授权/数据源/生产部署仍须分别验证。
+
+
 ## 2026-10-19 — 商品价格和销量 DOM 字段定位（v1.1.3）
 
 - 基于用户上传的商品详情页面 HTML，确认商品展示「已售431」、展示价格「¥19.9」，另有对比价「¥39」和店铺统计「已售426」；严格区分商品指标与店铺指标。
