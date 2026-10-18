@@ -1,0 +1,13 @@
+[Unit]
+Description=XHS Monitor: update main and deploy after validation
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@REPO_DIR@
+ExecStart=/usr/bin/bash @REPO_DIR@/scripts/auto-update.sh
+TimeoutStartSec=60min
+StandardOutput=journal
+StandardError=journal

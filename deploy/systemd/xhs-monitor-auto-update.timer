@@ -1,0 +1,12 @@
+[Unit]
+Description=XHS Monitor daily automatic update at 08:00 (configured timezone)
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 @AUTO_DEPLOY_TIMEZONE@
+Persistent=true
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=xhs-monitor-auto-update.service
+
+[Install]
+WantedBy=timers.target
