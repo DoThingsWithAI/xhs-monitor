@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-18 — Docker deployment fixes (v1.1.1)
+
+- 修复生产 Docker 镜像需显式安装 TypeScript/tsx 构建依赖的问题。
+- 调整 Playwright seccomp 路径，使其相对于 Compose 文件所在目录。
+- GitHub Actions 增加 Web 和 Worker Docker 构建测试；仓库仍未在实际 VPS 部署。
+
+
 ## 2026-10-18 — MVP 开发里程碑 M1 + M2（代码已提交，生产未部署）
 
 - 完成 TypeScript 项目、Next.js Web 管理后台及管理员登录。

@@ -1,6 +1,6 @@
 # XHS Monitor｜小红书竞品商品自动监控系统产品需求说明书（PRD）
 
-> **版本**：v1.1.0 · MVP 开发状态同步
+> **版本**：v1.1.1 · Docker 部署修复
 > **日期**：2026-10-18
 > **仓库**：https://github.com/DoThingsWithAI/xhs-monitor
 > **状态**：M1/M2 首批代码已提交并通过基础 CI；**尚未在用户 VPS 部署，真实商品数据源未验证，M3/M4 未验收**
@@ -653,6 +653,7 @@ xhs-monitor/
 | 1.0.0 | 2026-10-18 | 根据已确认决策形成完整 PRD：Playwright、单 VPS、SQLite、自动监控 P0、数据源授权、数据质量、状态机、逻辑数据模型、部署、安全与验收 |
 | 1.0.1 | 2026-10-18 | 提交 Ubuntu 单 VPS 部署入口 scripts/deploy.sh、.env.example、.gitignore 与 docs/DEPLOY.md；增加 Docker 安装防冲突检查、SQLite 一致性备份、HTTPS/域名配置检查；Web/Worker 仍未开发 |
 | 1.1.0 | 2026-10-18 | 开始开发：提交 Next.js 管理后台、SQLite 数据层、Playwright Worker、定时队列、来源许可、异常日志、Compose 与自动化测试。基础功能有代码，不代表真实竞品销量已可用；VPS/7 天验收未完成。 |
+| 1.1.1 | 2026-10-18 | 修正 Web/Worker 生产镜像开发依赖缺失，修复 seccomp 配置路径，新增 Docker 镜像构建 CI 验证。实际 VPS 上线及 Chromium 沙箱测试仍待执行。 |
 
 ---
 

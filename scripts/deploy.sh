@@ -30,8 +30,8 @@ Usage: sudo bash scripts/deploy.sh <command>
   status          List this project's Compose containers
   help            Print this help
 
-Default command is "deploy". The repository currently contains only documentation:
-deploy will refuse to start until the application's Compose/services are implemented.
+Default command is "deploy". Application sources exist; production deployment still requires
+a valid domain, free HTTP(S) ports, working Docker and a successful Chromium smoke check.
 HELP
 }
 require_root() { [[ "$(id -u)" -eq 0 ]] || die "Run with sudo/root (no actions performed)."; }
