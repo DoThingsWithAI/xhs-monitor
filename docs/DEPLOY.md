@@ -2,7 +2,7 @@
 
 > 项目：`DoThingsWithAI/xhs-monitor` · 版本：部署脚本 v1.0 · 2026-10-18
 >
-> **当前状态：仓库暂时只有 PRD、部署准备脚本和文档。Web、Playwright Worker 与 Compose 尚未开发，因此目前不能真正启动商品监控。** 脚本会主动检查并阻止“假成功”。
+> **当前状态：Web、Playwright Worker、SQLite schema、Compose 均已提交且 GitHub CI 已通过单元测试、类型检查与 Web 构建。尚未在用户 VPS 上部署，且真实竞品商品数据源/销量字段尚未经过授权及实测。**
 
 ## 1. 适用环境
 
@@ -39,16 +39,16 @@ sudo nano /opt/xhs-monitor/.env
 
 `install-docker` 使用 Docker **官方 Ubuntu apt 仓库**安装 Engine 和 Compose v2；如果发现系统已有 Docker、containerd 或其他潜在冲突组件，脚本会拒绝无提示迁移。**不会运行 `get.docker.com` 便利脚本**。
 
-## 3. 正式一键部署（M1/M2 应用代码齐备后）
+## 3. 一键部署应用（代码已具备；需先检查 VPS）
 
-完整项目至少需要：
-- `apps/web/` Next.js 生产代码；
-- `apps/worker/` Playwright Worker 生产代码；
+当前已提交以下应用部件，正式部署时应再次核实其安全性：
+- `apps/web/` Next.js Web + 登录 + 后台；
+- `apps/worker/` Playwright Worker 和任务调度；
 - `deploy/compose.yaml` 定义 `web`、`worker`、`caddy` 三个服务；
-- Caddy 配置，支持应用登录鉴权、HTTPS、健康检查；
+- Caddy HTTPS 反代；Next.js 登录鉴权和健康检查；
 - web/worker 按应用容器用户 UID/GID 10001 与可写共享数据目录配置；
-- 实现数据库迁移和管理员安全初始化；
-- Playwright 使用合适的浏览器沙箱并按许可规则决定是否采集。
+- 数据库自动建表和交互式管理员初始化命令；
+- Playwright 使用独立容器用户、官方 seccomp 配置并按许可决定是否采集。
 
 当以上实现、检查过生产环境变量且域名/端口准备好后：
 
@@ -59,7 +59,18 @@ sudo bash scripts/deploy.sh deploy
 
 脚本依次运行：检查 Ubuntu → 检查项目应用文件 → 检查 Docker/Compose → 保留已有 `.env` → 持久化数据目录 → 检查 Compose 服务 → 如数据库存在先做 SQLite 一致性备份 → `docker compose -p xhs-monitor up -d --build --wait` → 显示本项目容器状态。
 
-**现在运行 `deploy` 会明确报错缺少 `deploy/compose.yaml`，这是正确行为，并不代表脚本损坏。** 开发任务仍以 [PRD](PRD.md) 的里程碑为准。
+当前提交包含 Compose，但**不代表你的 VPS 已完成部署**。如果 80/443 端口已经被其他应用占用，必须先调整代理架构，不能直接启动第二套 Caddy。即使三项容器正常启动，也不能将未获取来源许可的商品标记为“销量监控成功”。
+
+首次容器启动后，交互式创建管理员（命令不会在 shell 历史中记录明文密码）：
+
+```bash
+cd /opt/xhs-monitor
+docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml exec web npm run admin:init
+```
+
+然后访问 `https://你的域名` 登录。**首次添加的商品默认等待来源许可，系统不会在此状态主动访问目标站点。**
+
+Playwright 实际采集前，需要对数据源取得明确的自动访问、存储和内部分析许可，并在「数据源与设置」中维护许可说明及经过测试的 CSS 字段选择器；若页面不提供展示销量，该字段仍会保持缺失。
 
 ## 4. 后续升级、查看状态和备份
 
@@ -113,3 +124,11 @@ sudo bash scripts/deploy.sh doctor
 - [Playwright Docker](https://playwright.dev/docs/docker)
 - [SQLite 在线备份](https://sqlite.org/backup.html)
 - [SQLite WAL](https://sqlite.org/wal.html)
+
+## 7. 目前已知限制（2026-10-18）
+
+- 当前项目的自动采集适配器支持**获得明确许可的网页和可配置 CSS 字段**，但尚无经验证的小红书竞品销量字段选择器或合规可用数据源；上线数据真实性仍需单独验收。
+- Node/Next 构建和数据库队列回归测试已在 GitHub CI 通过；Docker 镜像是否能在**你的实际 VPS** 正常运行沙箱仍待部署验证。
+- SQLite 热备份命令可用，但每天自动备份、离机备份与定期恢复演练仍需要部署侧安排。
+- 当前不支持与现有 Nginx/Caddy 自动合并；如 80/443 被占用，需要改 Compose 的网络/入口而非强行关闭已有站点。
+- 本项目将 Playwright 官方仓库的 `utils/docker/seccomp_profile.json` 配置加入 `deploy/` 用于 Chromium 沙箱；如果 Docker/Ubuntu 的内核用户命名空间被关闭，Worker 应报告浏览器启动失败，而不是自动回退到 `--no-sandbox`。
