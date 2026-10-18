@@ -13,6 +13,20 @@
 - [开发变更记录](docs/CHANGELOG.md)
 - [GitHub Actions 构建状态](https://github.com/DoThingsWithAI/xhs-monitor/actions)
 
+## 支持的商品链接格式
+
+当前已支持小红书商城 `goods-detail` 形态，包括完整 App 分享链接。
+
+例如：
+
+```text
+https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf
+```
+
+链接在录入时自动提取路径中的 24 位商品 ID，去除所有分享及追踪查询参数。同一商品不同分享链接会去重。旧版已保存的带参链接，在更新代码后重新添加一次相同商品链接即可规范化，**不会删除已有销量历史**。
+
+这只是商品链接解析功能：**尚未验证该商品的真实名称、价格、销量及其可自动采集权限**。没有获得许可的数据来源时，仍会显示「等待来源授权」。
+
 ## 已实现功能
 
 - 单管理员：交互式创建管理员账号、加盐 scrypt 密码校验和带签名的 HttpOnly 会话

@@ -1,6 +1,6 @@
 # XHS Monitor｜小红书竞品商品自动监控系统产品需求说明书（PRD）
 
-> **版本**：v1.1.1 · Docker 部署修复
+> **版本**：v1.1.2 · 商品分享链接规范化
 > **日期**：2026-10-18
 > **仓库**：https://github.com/DoThingsWithAI/xhs-monitor
 > **状态**：M1/M2 首批代码已提交并通过基础 CI；**尚未在用户 VPS 部署，真实商品数据源未验证，M3/M4 未验收**
@@ -654,8 +654,18 @@ xhs-monitor/
 | 1.0.1 | 2026-10-18 | 提交 Ubuntu 单 VPS 部署入口 scripts/deploy.sh、.env.example、.gitignore 与 docs/DEPLOY.md；增加 Docker 安装防冲突检查、SQLite 一致性备份、HTTPS/域名配置检查；Web/Worker 仍未开发 |
 | 1.1.0 | 2026-10-18 | 开始开发：提交 Next.js 管理后台、SQLite 数据层、Playwright Worker、定时队列、来源许可、异常日志、Compose 与自动化测试。基础功能有代码，不代表真实竞品销量已可用；VPS/7 天验收未完成。 |
 | 1.1.1 | 2026-10-18 | 修正 Web/Worker 生产镜像开发依赖缺失，修复 seccomp 配置路径，新增 Docker 镜像构建 CI 验证。实际 VPS 上线及 Chromium 沙箱测试仍待执行。 |
+| 1.1.2 | 2026-10-18 | 真实 `goods-detail` 链接接入检查：以 URL 路径中 24 位商品 ID 作为商品标识，删除分享追踪参数（包括嵌套的 `instation_link`），兼容重复分享链接与旧版记录，避免记录分享 Token；实际商品详情与销量尚未从公开页面验证。 |
 
 ---
+
+## 15.1 本次真实商品链接校验结果
+
+- 样例：`https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf`（已去掉共享 Token 和追踪参数）。
+- 商品路径中的标识是 `6a290d7c3222c60001e051bf`；分享参数里的嵌套 `itemId` 可能不同，不能反向覆盖路径商品 ID。
+- 标准化时全部舍弃查询参数和 fragment；不要将 `xsec_token`、`instation_link` 或 `share_id` 保存为原始商品链接。
+- 同一商品通过不同分享参数或允许的移动站域名输入，必须复用一个商品记录。已保存的旧版长链接在再次添加相同商品时做就地规范化，不创建重复商品。
+- 当前访问环境未取得该商品可读的公开详情页面，**名称、价格、销量及 CSS 选择器均未验证**；不得使用示例值和猜测值进行生产监控。
+- 访问被限制或来源缺少明确自动采集/储存许可时，保持 `awaiting_authorization` 并显示原因。
 
 ## 16. 参考文档
 

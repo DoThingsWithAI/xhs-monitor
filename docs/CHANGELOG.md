@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-18 — goods-detail 链接兼容与隐私修复（v1.1.2）
+
+- 核实用户提供的 `goods-detail` 链接可由 URL 路径解析 24 位商品 ID，不能把分享参数里的嵌套 `itemId` 误当作该商品 ID。
+- 添加商品时只保存去除全部 query/fragment 的标准链接，避免 `xsec_token`、`instation_link`、`share_id` 被保存为商品数据。
+- 同一商品的多个分享链接采用商品 ID 去重，兼容已入库的旧版带参链接，重复添加时可原位清理。
+- API 添加接口不再回传原始带追踪参数 URL；增加相应自动化回归测试。
+- 真实商品名称、价格和销量尚未能经网页或授权 API 确认，不应宣称已成功采集。
+
+
 ## 2026-10-18 — Docker deployment fixes (v1.1.1)
 
 - 修复生产 Docker 镜像需显式安装 TypeScript/tsx 构建依赖的问题。
