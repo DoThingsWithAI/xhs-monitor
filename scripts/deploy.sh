@@ -221,7 +221,9 @@ deploy() {
   log "Building and starting ONLY Compose project ${PROJECT_NAME}..."
   compose up -d --build --wait --wait-timeout 180
   compose ps
-  log "Compose command completed. Check authenticated web access, worker heartbeat and real data source authorization before considering monitoring healthy."
+  log "Checking Chromium launch in non-root Playwright Worker..."
+  compose exec -T worker npm run worker:smoke || die "Chromium sandbox failed to launch. Containers remain running for troubleshooting; fix sandbox before production."
+  log "Compose and Chromium smoke check passed. Login/bootstrap and real authorized data source validation are still required."
 }
 update() {
   require_root

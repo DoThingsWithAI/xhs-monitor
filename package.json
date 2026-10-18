@@ -13,7 +13,8 @@
     "db:init": "tsx packages/db/migrate.ts",
     "admin:init": "tsx scripts/admin-init.ts",
     "test": "tsx --test tests/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "worker:smoke": "tsx scripts/worker-smoke.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
