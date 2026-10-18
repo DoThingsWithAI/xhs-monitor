@@ -23,3 +23,8 @@ jobs:
       - run: npm run db:init
       - run: npm run typecheck
       - run: npm run build
+      - name: Validate Compose config
+        run: |
+          cp .env.example .env
+          sed -i 's/^APP_DOMAIN=.*/APP_DOMAIN=example.com/' .env
+          docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml config --quiet
