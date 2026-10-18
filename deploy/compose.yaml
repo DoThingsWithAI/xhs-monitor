@@ -37,7 +37,7 @@ services:
     mem_limit: 1536m
     security_opt:
       - "no-new-privileges:true"
-      - "seccomp=./deploy/seccomp_profile.json"
+      - "seccomp=./seccomp_profile.json"
     networks: [internal]
   caddy:
     image: caddy:2-alpine
