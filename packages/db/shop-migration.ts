@@ -8,10 +8,12 @@ const FIELDS:Record<string,string>={
  shop_followers_precision:"TEXT NOT NULL DEFAULT 'missing'"
 };
 export function migrateShopObservationColumns(d:Database.Database):void{
- const existing=new Set((d.pragma('table_info(product_observations)') as Array<{name:string}>).map(r=>r.name));
+ // BEGIN IMMEDIATE serializes concurrent web/worker migrations across processes.
+ // Inspect the schema after acquiring the write lock, preventing duplicate ALTERs.
  d.transaction(()=>{
+  const existing=new Set((d.pragma('table_info(product_observations)') as Array<{name:string}>).map(r=>r.name));
   for(const [field,def] of Object.entries(FIELDS)){
    if(!existing.has(field))d.exec('ALTER TABLE product_observations ADD COLUMN '+field+' '+def);
   }
- })();
+ }).immediate();
 }

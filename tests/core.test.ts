@@ -46,7 +46,7 @@ test('goods-detail snapshot: product-level sales, current price and selectors', 
  assert.equal(XHS_GOODS_SELECTORS.sales,'.price-container .spu-text');
  assert.equal(XHS_GOODS_SELECTORS.price,'.price-container .price');
  assert.equal(XHS_GOODS_SELECTORS.title,'.goods-name');
- assert.equal(XHS_GOODS_SELECTORS.shop,'.seller-name');
+ assert.equal(XHS_GOODS_SELECTORS.shop,'.seller-container .seller-name');
 });
 
 test('seller stats are distinct from product sales and are not made-up zero',()=>{
