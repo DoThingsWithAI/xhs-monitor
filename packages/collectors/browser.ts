@@ -50,8 +50,9 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
   const shop=await take('shop');
   // Shop sales and followers are identified by label; never mix them with item sales.
   // Fallback supports old custom source selector JSON without shop keys.
-  const shopStatLabels=await page.locator(sel.shopStats||XHS_GOODS_SELECTORS.shopStats)
-    .allTextContents({timeout:5000}).catch(()=>[]);
+  const shopStatsLocator=page.locator(sel.shopStats||XHS_GOODS_SELECTORS.shopStats);
+  await shopStatsLocator.first().waitFor({state:'attached',timeout:5000}).catch(()=>{});
+  const shopStatLabels=await shopStatsLocator.allTextContents().catch(()=>[]);
   const ratingText=await page.locator(sel.shopRating||XHS_GOODS_SELECTORS.shopRating)
     .first().textContent({timeout:5000}).catch(()=>null);
   const shopMetrics=parseShopStats(shopStatLabels);
