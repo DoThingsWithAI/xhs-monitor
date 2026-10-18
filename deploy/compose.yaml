@@ -25,8 +25,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.worker
-    env_file: ../.env
     environment:
+      NODE_ENV: production
       DB_PATH: /data/xhs-monitor.sqlite
     volumes:
       - ${XHS_DATA_DIR:-/var/lib/xhs-monitor}:/data
