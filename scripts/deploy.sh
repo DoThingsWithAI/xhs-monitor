@@ -28,6 +28,9 @@ Usage: sudo bash scripts/deploy.sh <command>
   update          Fast-forward git pull then run deployment (no hard reset)
   backup          Consistent online SQLite backup to /var/backups/xhs-monitor/
   status          List this project's Compose containers
+  schedule        Install/enable daily 08:00 GitHub auto-update (systemd)
+  schedule-status Show next scheduled run and recent outcome
+  unschedule      Stop daily auto-updates (does NOT stop application)
   help            Print this help
 
 Default command is "deploy". Application sources exist; production deployment still requires
@@ -214,31 +217,108 @@ deploy() {
   validate_app_env
   prepare_data_dir
   check_services
+  log "Preflight: build web+worker images BEFORE replacing running containers..."
+  compose build web worker
+  log "Preflight: run tests against a temporary SQLite DB (never production)..."
+  compose run --rm --no-deps -e DB_PATH=/tmp/xhs-monitor-preflight.sqlite worker npm test
+  log "Preflight: verify non-root Chromium with a local test page..."
+  compose run --rm --no-deps worker npm run worker:smoke
   if [[ -f "$(data_dir)/xhs-monitor.sqlite" ]]; then
-    log "Existing SQLite database detected; backing up before redeploy."
+    log "Existing SQLite database detected; making consistent backup before restart."
     sqlite_backup
   fi
-  log "Building and starting ONLY Compose project ${PROJECT_NAME}..."
-  compose up -d --build --wait --wait-timeout 180
+  log "Starting ONLY Compose project ${PROJECT_NAME}..."
+  compose up -d --no-build --wait --wait-timeout 180
   compose ps
-  log "Checking Chromium launch in non-root Playwright Worker..."
-  compose exec -T worker npm run worker:smoke || die "Chromium sandbox failed to launch. Containers remain running for troubleshooting; fix sandbox before production."
-  log "Compose and Chromium smoke check passed. Login/bootstrap and real authorized data source validation are still required."
+  log "Containers healthy; browser smoke test passed."
+  if [[ "${XHS_SCHEDULED_RUN:-0}" != 1 ]]; then
+    if [[ "${XHS_DISABLE_AUTO_UPDATE:-0}" != 1 ]]; then
+      install_auto_update_timer
+    else
+      log "Auto-update disabled by XHS_DISABLE_AUTO_UPDATE=1."
+    fi
+    if [[ -d "${REPO_DIR}/.git" ]]; then
+      install -d -m 0700 "${STATE_DIR}"
+      git -C "${REPO_DIR}" rev-parse HEAD >"${STATE_DIR}/last-success-sha"
+      chmod 0600 "${STATE_DIR}/last-success-sha"
+    fi
+  fi
+  log "Deployment complete. Real sales collection still needs an approved data source."
 }
 update() {
   require_root
-  command -v git >/dev/null 2>&1 || die "git not installed."
-  [[ -d "${REPO_DIR}/.git" ]] || die "Not a Git checkout. Use deploy (not update) for a copied directory."
-  [[ -z "$(git -C "${REPO_DIR}" status --porcelain --untracked-files=no)" ]] || die "Tracked local modifications exist; refusing to overwrite."
-  [[ "$(git -C "${REPO_DIR}" branch --show-current)" == main ]] || die "Update supports main branch only."
-  git -C "${REPO_DIR}" pull --ff-only
-  exec bash "${REPO_DIR}/scripts/deploy.sh" deploy
+  exec env XHS_UPDATE_FORCE=1 bash "${REPO_DIR}/scripts/auto-update.sh"
 }
 status() {
   [[ -f "${COMPOSE_FILE}" && -f "${ENV_FILE}" ]] || die "Compose file or .env missing; nothing deployed yet."
   require_docker
   compose ps
 }
+
+TIMER_SERVICE="xhs-monitor-auto-update.service"
+TIMER_UNIT="xhs-monitor-auto-update.timer"
+STATE_DIR="/var/lib/xhs-monitor-deploy"
+
+auto_update_timezone() {
+  local timezone
+  timezone="$(awk -F= '$1=="AUTO_DEPLOY_TIMEZONE" {print substr($0, index($0, "=")+1); exit}' "${ENV_FILE}" 2>/dev/null || true)"
+  timezone="${timezone:-Asia/Shanghai}"
+  [[ "${timezone}" =~ ^[A-Za-z][A-Za-z0-9_+.-]*(/[A-Za-z0-9_+.-]+)*$ ]] ||
+    die "Invalid AUTO_DEPLOY_TIMEZONE format (example: Asia/Shanghai)."
+  [[ -f "/usr/share/zoneinfo/${timezone}" ]] || die "Unknown timezone: ${timezone}"
+  printf '%s\n' "${timezone}"
+}
+
+install_auto_update_timer() {
+  require_root
+  check_os
+  command -v systemctl >/dev/null || die "systemctl missing: schedule installation needs systemd."
+  command -v systemd-analyze >/dev/null || die "systemd-analyze missing."
+  [[ -f "${ENV_FILE}" ]] || die ".env missing. Run prepare first."
+  [[ -d "${REPO_DIR}/.git" ]] || die "Daily GitHub updates require a git clone."
+  [[ "${REPO_DIR}" =~ ^/[A-Za-z0-9_./-]+$ ]] || die "Unsupported characters in checkout path."
+  [[ -f "${REPO_DIR}/deploy/systemd/${TIMER_SERVICE}" ]] || die "Service template missing."
+  [[ -f "${REPO_DIR}/deploy/systemd/${TIMER_UNIT}" ]] || die "Timer template missing."
+  local timezone temp_service temp_timer
+  timezone="$(auto_update_timezone)"
+  systemd-analyze calendar "*-*-* 08:00:00 ${timezone}" >/dev/null ||
+    die "systemd rejected the schedule / timezone."
+  temp_service="$(mktemp)"
+  temp_timer="$(mktemp)"
+  sed "s|@REPO_DIR@|${REPO_DIR}|g" "${REPO_DIR}/deploy/systemd/${TIMER_SERVICE}" >"${temp_service}"
+  sed "s|@AUTO_DEPLOY_TIMEZONE@|${timezone}|g" "${REPO_DIR}/deploy/systemd/${TIMER_UNIT}" >"${temp_timer}"
+  install -m 0644 "${temp_service}" "/etc/systemd/system/${TIMER_SERVICE}"
+  install -m 0644 "${temp_timer}" "/etc/systemd/system/${TIMER_UNIT}"
+  rm -f "${temp_service}" "${temp_timer}"
+  systemd-analyze verify "/etc/systemd/system/${TIMER_SERVICE}" "/etc/systemd/system/${TIMER_UNIT}" ||
+    die "systemd unit verification failed."
+  systemctl daemon-reload
+  systemctl enable --now "${TIMER_UNIT}"
+  log "Enabled automatic updates at 08:00 ${timezone} every day (with reboot catch-up)."
+  systemctl list-timers "${TIMER_UNIT}" --no-pager
+}
+
+auto_update_status() {
+  require_root
+  systemctl list-timers "${TIMER_UNIT}" --all --no-pager || true
+  systemctl is-enabled "${TIMER_UNIT}" || true
+  systemctl is-active "${TIMER_UNIT}" || true
+  if [[ -f "${STATE_DIR}/last-status" ]]; then
+    log "Last run: $(cat "${STATE_DIR}/last-status")"
+  else
+    log "No completed scheduled update recorded yet."
+  fi
+  log "Logs: journalctl -u ${TIMER_SERVICE} --since today --no-pager"
+}
+
+disable_auto_update_timer() {
+  require_root
+  systemctl disable --now "${TIMER_UNIT}" || true
+  rm -f "/etc/systemd/system/${TIMER_UNIT}" "/etc/systemd/system/${TIMER_SERVICE}"
+  systemctl daemon-reload
+  log "Disabled XHS Monitor auto-updates; application containers were not stopped."
+}
+
 main() {
   local cmd="${1:-deploy}"
   [[ "$#" -le 1 ]] || die "One command at a time. Run 'help' for usage."
@@ -251,6 +331,9 @@ main() {
     update) update ;;
     backup) require_root; check_os; sqlite_backup ;;
     status) status ;;
+    schedule) install_auto_update_timer ;;
+    schedule-status) auto_update_status ;;
+    unschedule) disable_auto_update_timer ;;
     *) usage; die "Unknown command: ${cmd}" ;;
   esac
 }
