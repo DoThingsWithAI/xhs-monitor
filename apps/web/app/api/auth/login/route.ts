@@ -1,6 +1,6 @@
 import {NextRequest,NextResponse} from 'next/server';
-import {db} from '../../../../../packages/db';
-import {sameOrigin,verifyPassword,sessionCookieName,sessionValue} from '../../../../../packages/core/auth';
+import {db} from '@/packages/db';
+import {sameOrigin,verifyPassword,sessionCookieName,sessionValue} from '@/packages/core/auth';
 export const runtime='nodejs';
 const counters=new Map<string,{n:number,until:number}>();
 export async function POST(req:NextRequest){

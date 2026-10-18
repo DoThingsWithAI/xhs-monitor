@@ -1,6 +1,6 @@
 import {NextRequest,NextResponse} from 'next/server';
-import {getAdmin,sameOrigin} from '../../../../../packages/core/auth';
-import {db} from '../../../../../packages/db';
+import {getAdmin,sameOrigin} from '@/packages/core/auth';
+import {db} from '@/packages/db';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 export async function GET(req:NextRequest,ctx:{params:Promise<{id:string}>}){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
