@@ -13,6 +13,11 @@ test('authorization defaults to disabled; scheduling and claiming are durable',a
  const originalSelectors=JSON.parse((d.prepare("SELECT selectors_json FROM data_sources WHERE id='xhs-browser'").get() as {selectors_json:string}).selectors_json);
  assert.equal(originalSelectors.sales,'.price-container .spu-text');
  assert.equal(originalSelectors.price,'.price-container .price');
+ assert.equal(originalSelectors.shopRating,'.seller-container .score-text');
+ assert.equal(originalSelectors.shopStats,'.seller-container .name-info .sub-title');
+ const cols=(d.pragma('table_info(product_observations)') as Array<{name:string}>).map(x=>x.name);
+ for(const name of ['shop_rating_raw_text','shop_rating_hundredths','shop_sales_raw_text','shop_sales_value','shop_sales_precision','shop_followers_raw_text','shop_followers_value','shop_followers_precision'])
+  assert.ok(cols.includes(name),name);
  assert.equal((d.prepare("SELECT enabled FROM data_sources WHERE id='xhs-browser'").get() as {enabled:number}).enabled,0);
  const result=createProduct('https://www.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf?xsec_token=PRIVATE_SHARE_TOKEN&instation_link=nested_token&share_id=track');
  assert.equal((d.prepare('SELECT platform_product_id FROM products WHERE id=?').get(result.id) as {platform_product_id:string}).platform_product_id,'6a290d7c3222c60001e051bf');
@@ -53,3 +58,20 @@ test('legacy stored share URLs are reused and scrubbed when re-added',async()=>{
  assert.equal(stored.platform_product_id,'7a290d7c3222c60001e051bf');
 });
 test.after(()=>rmSync(path,{recursive:true,force:true}));
+
+test('migration expands legacy snapshot schema and preserves historical values',async()=>{
+ const Database=(await import('better-sqlite3')).default;
+ const {initSchema}=await import('../packages/db');
+ const legacy=new Database(':memory:');
+ try{
+  legacy.exec("CREATE TABLE product_observations (id TEXT PRIMARY KEY,product_id TEXT,source_id TEXT,observed_at INTEGER,sales_value INTEGER); INSERT INTO product_observations (id,product_id,source_id,observed_at,sales_value) VALUES ('old','p','s',1,431);");
+  initSchema(legacy);
+  initSchema(legacy);
+  const historic=legacy.prepare("SELECT sales_value,shop_sales_value,shop_followers_value,shop_rating_hundredths,shop_sales_precision FROM product_observations WHERE id='old'").get() as any;
+  assert.equal(historic.sales_value,431);
+  assert.equal(historic.shop_sales_value,null);
+  assert.equal(historic.shop_followers_value,null);
+  assert.equal(historic.shop_rating_hundredths,null);
+  assert.equal(historic.shop_sales_precision,'missing');
+ }finally{legacy.close();}
+});

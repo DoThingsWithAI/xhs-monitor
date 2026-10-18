@@ -1,12 +1,12 @@
 'use client';
 import {useEffect,useState,useCallback} from 'react';
 import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
 type Alert={id:string;type:string;severity:string;occurrences:number;last_seen_at:number;status:string;details_json:string};
-type Observation={observed_at:number;sales_raw_text:string|null;sales_value:number|null;sales_precision:string;price_minor:number|null;quality_status:string};
+type Observation={observed_at:number;sales_raw_text:string|null;sales_value:number|null;sales_precision:string;price_minor:number|null;quality_status:string;shop_observed:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_value:number|null;shop_sales_precision:string;shop_followers_raw_text:string|null;shop_followers_value:number|null;shop_followers_precision:string};
 const date=(value:number|null|undefined)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
 const yuan=(c:number|null|undefined)=>c===null||c===undefined?'—':'¥'+(c/100).toFixed(2);
 function statusName(p:Product){
@@ -40,7 +40,7 @@ export default function Dashboard({username}:{username:string}){
  const [runs,setRuns]=useState<Run[]>([]),[alerts,setAlerts]=useState<Alert[]>([]),[sources,setSources]=useState<Source[]>([]);
  const [urls,setUrls]=useState(''),[category,setCategory]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const [detailId,setDetailId]=useState<string|null>(null),[history,setHistory]=useState<Observation[]>([]);
- const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:XHS_GOODS_SELECTORS.title as string,salesSelector:XHS_GOODS_SELECTORS.sales as string,priceSelector:XHS_GOODS_SELECTORS.price as string,shopSelector:XHS_GOODS_SELECTORS.shop as string});
+ const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:XHS_GOODS_SELECTORS.title as string,salesSelector:XHS_GOODS_SELECTORS.sales as string,priceSelector:XHS_GOODS_SELECTORS.price as string,shopSelector:XHS_GOODS_SELECTORS.shop as string,shopRatingSelector:XHS_GOODS_SELECTORS.shopRating as string,shopStatsSelector:XHS_GOODS_SELECTORS.shopStats as string});
  const refresh=useCallback(async()=>{
   try{
    const [p,s,r,a,so]=await Promise.all([api<Product[]>('/api/products'),api<{stats:Stats}>('/api/system'),api<Run[]>('/api/runs'),api<Alert[]>('/api/alerts'),api<Source[]>('/api/sources')]);
@@ -54,7 +54,7 @@ export default function Dashboard({username}:{username:string}){
   try{sel=JSON.parse(s.selectors_json);}catch{}
   setSourceForm({enabled:!!s.enabled,automated_access_allowed:!!s.automated_access_allowed,
    storage_allowed:!!s.storage_allowed,analysis_allowed:!!s.analysis_allowed,permission_basis:s.permission_basis||'',
-   titleSelector:sel.title||XHS_GOODS_SELECTORS.title,salesSelector:sel.sales||XHS_GOODS_SELECTORS.sales,priceSelector:sel.price||XHS_GOODS_SELECTORS.price,shopSelector:sel.shop||XHS_GOODS_SELECTORS.shop});
+   titleSelector:sel.title||XHS_GOODS_SELECTORS.title,salesSelector:sel.sales||XHS_GOODS_SELECTORS.sales,priceSelector:sel.price||XHS_GOODS_SELECTORS.price,shopSelector:sel.shop||XHS_GOODS_SELECTORS.shop,shopRatingSelector:sel.shopRating||XHS_GOODS_SELECTORS.shopRating,shopStatsSelector:sel.shopStats||XHS_GOODS_SELECTORS.shopStats});
  },[sources.length]); // Fetch refresh does not erase unsaved edits
  async function add(){
   const items=urls.split(/[\n\r]+/).map(s=>s.trim()).filter(Boolean);
@@ -105,24 +105,25 @@ export default function Dashboard({username}:{username:string}){
    </section>}
    {tab==='products'&&<section className="panel">
      <div className="panel-head"><h2>商品列表</h2><span className="muted">{products.length} 个商品</span></div>
-     <div className="table-scroll"><table><thead><tr><th>商品 / 店铺</th><th>展示销量</th><th>价格</th><th>状态</th><th>最近有效数据</th><th>操作</th></tr></thead><tbody>
+     <div className="table-scroll"><table><thead><tr><th>商品 / 店铺</th><th>商品已售</th><th>价格</th><th>店铺口碑 / 已售 / 粉丝数</th><th>状态</th><th>最近有效数据</th><th>操作</th></tr></thead><tbody>
       {products.map(p=><tr key={p.id}><td><strong>{p.title||'待采集商品名称'}</strong><small>{p.shop_name||p.category||'—'}</small><a href={p.canonical_url} target="_blank" rel="noopener noreferrer">原始商品链接 ↗</a></td>
        <td>{p.sales_raw_text||'未知'}<small>{p.sales_precision||'无数据'}</small></td><td>{yuan(p.price_minor)}</td>
+       <td><strong>{p.shop_rating_raw_text??'未知'}</strong><small>店铺已售：{p.shop_sales_raw_text??'未知'} · 粉丝：{p.shop_followers_raw_text??'未知'}</small></td>
        <td><span className={'tag '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p)}</span></td>
        <td>{date(p.last_success_at)}</td><td><button className="text-button" onClick={()=>void showDetail(p.id)}>历史</button> <button className="text-button" onClick={()=>void updateProduct(p.id,p.monitor_status==='active'?'paused':'active')}>{p.monitor_status==='active'?'暂停':'恢复'}</button></td>
       </tr>)}
-      {!products.length&&<tr><td colSpan={6} className="empty">还没有商品。添加链接后系统会检查来源许可并创建监控任务。</td></tr>}
+      {!products.length&&<tr><td colSpan={7} className="empty">还没有商品。添加链接后系统会检查来源许可并创建监控任务。</td></tr>}
      </tbody></table></div>
     </section>}
    {tab==='products'&&detailId&&<section className="panel"><div className="panel-head"><h2>历史观察</h2><button className="ghost" onClick={()=>setDetailId(null)}>关闭</button></div><Trend items={history}/>
-    <div className="table-scroll"><table><thead><tr><th>采集时间</th><th>销售展示值</th><th>精度</th><th>价格</th><th>数据质量</th></tr></thead><tbody>{history.map(o=><tr key={o.observed_at}><td>{date(o.observed_at)}</td><td>{o.sales_raw_text||'未知'}</td><td>{o.sales_precision}</td><td>{yuan(o.price_minor)}</td><td>{o.quality_status}</td></tr>)}</tbody></table></div>
+    <div className="table-scroll"><table><thead><tr><th>采集时间</th><th>商品已售</th><th>销量精度</th><th>价格</th><th>店铺名称</th><th>口碑</th><th>店铺已售</th><th>粉丝数</th><th>数据质量</th></tr></thead><tbody>{history.map(o=><tr key={o.observed_at}><td>{date(o.observed_at)}</td><td>{o.sales_raw_text||'未知'}</td><td>{o.sales_precision}</td><td>{yuan(o.price_minor)}</td><td>{o.shop_observed??'—'}</td><td>{o.shop_rating_raw_text??'—'}</td><td>{o.shop_sales_raw_text??'—'}<small>{o.shop_sales_precision}</small></td><td>{o.shop_followers_raw_text??'—'}<small>{o.shop_followers_precision}</small></td><td>{o.quality_status}</td></tr>)}</tbody></table></div>
    </section>}
    {tab==='runs'&&<section className="panel"><h2>最新运行记录</h2><div className="table-scroll"><table><thead><tr><th>商品</th><th>开始</th><th>状态</th><th>错误码</th><th>尝试</th></tr></thead><tbody>{runs.map(r=><tr key={r.id}><td>{r.title||r.canonical_url.slice(0,42)}</td><td>{date(r.started_at)}</td><td>{r.result||'运行中'}</td><td>{r.error_code||'—'}</td><td>{r.attempt_no}</td></tr>)}</tbody></table></div>{!runs.length&&<p className="muted">尚无运行记录。仅有排队任务不代表抓取成功。</p>}</section>}
    {tab==='alerts'&&<section className="panel"><h2>采集与数据质量告警</h2><div className="table-scroll"><table><thead><tr><th>类型</th><th>级别</th><th>发生次数</th><th>最近发生</th><th>状态</th></tr></thead><tbody>{alerts.map(a=><tr key={a.id}><td>{a.type}</td><td>{a.severity}</td><td>{a.occurrences}</td><td>{date(a.last_seen_at)}</td><td>{a.status}</td></tr>)}</tbody></table></div>{!alerts.length&&<p className="muted">暂无异常告警。</p>}</section>}
    {tab==='settings'&&<section className="panel"><h2>自动采集来源</h2><p className="error">默认关闭。只有拥有明确的自动访问、保存和内部分析许可，才可以启用来源。配置选择器并不等同于取得授权。</p>
     <div className="form-grid">
      <label>授权依据 / 使用许可说明<textarea value={sourceForm.permission_basis} rows={2} onChange={e=>setSourceForm(v=>({...v,permission_basis:e.target.value}))} placeholder="注明许可提供方、授权范围、有效期及依据（不得虚构）"/></label>
-     {([['titleSelector','商品标题 CSS 选择器'],['salesSelector','销量展示 CSS 选择器'],['priceSelector','价格 CSS 选择器'],['shopSelector','店铺 CSS 选择器']] as const).map(([k,label])=><label key={k}>{label}<input value={sourceForm[k]} onChange={e=>setSourceForm(v=>({...v,[k]:e.target.value}))} placeholder="配置获得许可的页面字段"/></label>)}
+     {([['titleSelector','商品标题 CSS 选择器'],['salesSelector','销量展示 CSS 选择器'],['priceSelector','价格 CSS 选择器'],['shopSelector','店铺名称 CSS 选择器'],['shopRatingSelector','卖家口碑 CSS 选择器'],['shopStatsSelector','店铺销量/粉丝行 CSS 选择器']] as const).map(([k,label])=><label key={k}>{label}<input value={sourceForm[k]} onChange={e=>setSourceForm(v=>({...v,[k]:e.target.value}))} placeholder="配置获得许可的页面字段"/></label>)}
      {([['automated_access_allowed','已核实允许自动访问'],['storage_allowed','已核实允许存储'],['analysis_allowed','已核实允许内部分析'],['enabled','启用来源']] as const).map(([k,label])=><label className="check" key={k}><input type="checkbox" checked={sourceForm[k]} onChange={e=>setSourceForm(v=>({...v,[k]:e.target.checked}))}/>{label}</label>)}
     </div><div className="actions"><button disabled={busy} onClick={saveSource}>保存来源设置</button></div>
     <p className="footnote">Playwright 只访问被允许的 HTTPS 域名；遇到验证码、401/403/429 会暂停或终止，不提供绕过手段。</p>

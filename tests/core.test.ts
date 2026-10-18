@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {parseSales,parsePrice,compareSales} from '../packages/core/metrics';
 import {normalizedProductUrl,parseXhsGoodsUrl,safeHostname} from '../packages/core/urls';
 import {XHS_GOODS_SELECTORS} from '../packages/core/source-selectors';
+import {parseShopRating,parseShopFollowers,parseShopStats} from '../packages/core/shop-metrics';
 test('exact zero is not missing', () => assert.deepEqual(parseSales('已售 0'),{raw:'已售 0',value:0,precision:'exact'}));
 test('lower-bound display not exact', () => assert.deepEqual(parseSales('已售 1.2万+'),{raw:'已售 1.2万+',value:12000,precision:'lower_bound'}));
 test('missing sales is null', () => assert.equal(parseSales(undefined).value,null));
@@ -46,4 +47,20 @@ test('goods-detail snapshot: product-level sales, current price and selectors', 
  assert.equal(XHS_GOODS_SELECTORS.price,'.price-container .price');
  assert.equal(XHS_GOODS_SELECTORS.title,'.goods-name');
  assert.equal(XHS_GOODS_SELECTORS.shop,'.seller-name');
+});
+
+test('seller stats are distinct from product sales and are not made-up zero',()=>{
+ assert.deepEqual(parseShopRating('4.32'),{raw:'4.32',hundredths:432});
+ assert.equal(parseShopRating(undefined).hundredths,null);
+ assert.equal(parseShopRating('4.321').hundredths,null);
+ assert.deepEqual(parseShopFollowers('粉丝数 1261'),{raw:'粉丝数 1261',value:1261,precision:'exact'});
+ const stats=parseShopStats(['卖家口碑','粉丝数 1261','已售426']);
+ assert.deepEqual(stats.shopSales,{raw:'已售426',value:426,precision:'exact'});
+ assert.equal(stats.shopFollowers.value,1261);
+ assert.equal(parseSales('已售431').value,431);
+ const empty=parseShopStats(['卖家口碑']);
+ assert.equal(empty.shopSales.value,null);
+ assert.equal(empty.shopFollowers.value,null);
+ assert.equal(XHS_GOODS_SELECTORS.shopStats,'.seller-container .name-info .sub-title');
+ assert.equal(XHS_GOODS_SELECTORS.shopRating,'.seller-container .score-text');
 });

@@ -17,13 +17,15 @@ export async function PATCH(req:NextRequest){
  const title=typeof body.titleSelector==='string'?body.titleSelector.trim().slice(0,250):'';
  const price=typeof body.priceSelector==='string'?body.priceSelector.trim().slice(0,250):'';
  const shop=typeof body.shopSelector==='string'?body.shopSelector.trim().slice(0,250):'';
+ const shopRating=typeof body.shopRatingSelector==='string'?body.shopRatingSelector.trim().slice(0,250):'';
+ const shopStats=typeof body.shopStatsSelector==='string'?body.shopStatsSelector.trim().slice(0,250):'';
  const license=body.automated_access_allowed===true && body.storage_allowed===true && body.analysis_allowed===true;
  if(enabled && (!license || basis.length<12 || !sales || !title))
   return NextResponse.json({error:'PERMISSION_AND_SELECTORS_REQUIRED'},{status:400});
  const ts=Date.now(),d=db();
  d.transaction(()=>{
   d.prepare('UPDATE data_sources SET enabled=?,automated_access_allowed=?,storage_allowed=?,analysis_allowed=?,permission_basis=?,selectors_json=?,updated_at=? WHERE id=?')
-   .run(enabled,body.automated_access_allowed===true?1:0,body.storage_allowed===true?1:0,body.analysis_allowed===true?1:0,basis,JSON.stringify({title,sales,price,shop}),ts,'xhs-browser');
+   .run(enabled,body.automated_access_allowed===true?1:0,body.storage_allowed===true?1:0,body.analysis_allowed===true?1:0,basis,JSON.stringify({title,sales,price,shop,shopRating,shopStats}),ts,'xhs-browser');
   if(enabled){
    activateAwaitingBindings(d,'xhs-browser',ts);
   }else{

@@ -1,6 +1,7 @@
 import {chromium} from 'playwright';
 import {XHS_GOODS_SELECTORS} from '../packages/core/source-selectors';
 import {parseSales,parsePrice} from '../packages/core/metrics';
+import {parseShopRating,parseShopStats} from '../packages/core/shop-metrics';
 async function main(){
  const browser=await chromium.launch({headless:true,timeout:30000});
  try{
@@ -10,7 +11,7 @@ async function main(){
   console.log('Chromium sandbox smoke check: OK');
   // Synthetic minimal fixture based only on the field fragments supplied by the user.
   // Deliberately place seller's "已售426" near product's "已售431" to catch bad locators.
-  await page.setContent(`<section class="seller"><p class="seller-name">辰星提效社的店</p><span class="sub-title">已售426</span></section>
+  await page.setContent(`<section class="seller-container"><div class="name-info"><p class="seller-name">辰星提效社的店</p><span class="sub-title">卖家口碑</span><span class="score-text">4.32</span><span class="sub-title">粉丝数 1261</span><span class="sub-title">已售426</span></div></section>
     <div class="goods-name">快采采 | 智能表格模板</div>
     <div class="price-container"><div class="price"><span>¥</span><p><span>19</span><span class="priceDecimalPart_price2">.9</span></p></div>
     <span class="del-price">¥39</span><span class="spu-text">已售431</span></div>`);
@@ -19,10 +20,13 @@ async function main(){
   const price=parsePrice(await text(XHS_GOODS_SELECTORS.price));
   const title=await text(XHS_GOODS_SELECTORS.title);
   const shop=await text(XHS_GOODS_SELECTORS.shop);
+  const rating=parseShopRating(await text(XHS_GOODS_SELECTORS.shopRating));
+  const shopStats=parseShopStats(await page.locator(XHS_GOODS_SELECTORS.shopStats).allTextContents());
   if(sales.value!==431 || sales.precision!=='exact' || price.cents!==1990 ||
+     rating.hundredths!==432 || shopStats.shopSales.value!==426 || shopStats.shopFollowers.value!==1261 ||
      !title?.includes('快采采') || shop!=='辰星提效社的店')
     throw new Error('Goods DOM field smoke check failed');
-  console.log('Goods DOM smoke check: selectors matched correct sales=431 and price=1990 cents.');
+  console.log('Goods DOM smoke check: product sold=431 price=1990 cents; seller rating=4.32 sold=426 followers=1261.');
  }finally{await browser.close();}
 }
 main().catch(e=>{console.error('Chromium smoke check FAILED:',e instanceof Error?e.message:String(e));process.exitCode=1;});
