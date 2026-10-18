@@ -1,0 +1,25 @@
+name: Build and test MVP
+on:
+  push:
+    paths: ['apps/**','packages/**','scripts/admin-init.ts','tests/**','package.json','tsconfig.json','next-env.d.ts','deploy/**','.github/workflows/ci.yml']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-build:
+    runs-on: ubuntu-24.04
+    env:
+      DB_PATH: /tmp/xhs-monitor-test.sqlite
+      SESSION_SECRET: example-test-session-secret-with-more-than-40-characters-123456
+      APP_DOMAIN: localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+      - run: npm run db:init
+      - run: npm run typecheck
+      - run: npm run build

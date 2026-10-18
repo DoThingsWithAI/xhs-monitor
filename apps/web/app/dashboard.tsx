@@ -20,7 +20,7 @@ function Trend({items}:{items:Observation[]}){
  const points=items.filter(o=>o.sales_value!==null).slice().reverse();
  if(points.length<2)return <p className="muted">至少需要 2 次有效观察才能展示趋势。</p>;
  const vals=points.map(p=>p.sales_value as number),min=Math.min(...vals),max=Math.max(...vals),span=Math.max(1,max-min);
- const path=points.map((p,i)=>((i/(points.length-1))*740+20).toFixed(1)+','+(160-((p.sales_value as number-min)/span)*120).toFixed(1)).join(' ');
+ const path=points.map((p,i)=>((i/(points.length-1))*740+20).toFixed(1)+','+(160-(((p.sales_value as number)-min)/span)*120).toFixed(1)).join(' ');
  return <div><svg role="img" aria-label="销量展示值历史趋势，不代表真实订单增量" viewBox="0 0 780 185" className="trend"><polyline points={path} fill="none" stroke="#3e78f0" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg><p className="footnote">仅供展示值趋势参考；“万+”属于近似下界，不代表真实订单增量。</p></div>;
 }
 export default function Dashboard({username}:{username:string}){

@@ -17,7 +17,7 @@ export function createProduct(url:string,category='') {
    d.prepare('INSERT INTO products (id,original_url,canonical_url,category,created_at,updated_at) VALUES (?,?,?,?,?,?)')
     .run(id,url,link,category.slice(0,100),ts,ts);
    d.prepare('INSERT INTO product_source_bindings (id,product_id,source_id,status,interval_seconds,next_due_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
-    .run(bindingId,id,source.id,authorized?'ready':'awaiting_authorization',Math.max(86400,source.minimum_interval_seconds)*1000,ts,ts,ts);
+    .run(bindingId,id,source.id,authorized?'ready':'awaiting_authorization',Math.max(86400,source.minimum_interval_seconds),ts,ts,ts);
    return {id,created:true,monitoring:authorized?'queued':'awaiting_source_authorization'};
  })();
 }
@@ -31,7 +31,7 @@ export function scheduleDue() {
  d.transaction(()=>{
   for(const b of bindings){
     enqueue.run(uuid(),b.id,b.next_due_at,'queued',b.id+':'+b.next_due_at,ts,ts);
-    advance.run(Math.max(b.next_due_at,ts)+b.interval_seconds,ts,b.id,b.next_due_at);
+    advance.run(Math.max(b.next_due_at,ts)+b.interval_seconds*1000,ts,b.id,b.next_due_at);
   }
  })();
  return bindings.length;
