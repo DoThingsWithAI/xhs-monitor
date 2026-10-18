@@ -1,47 +1,67 @@
 # XHS Monitor
 
-小红书竞品商品自动监控系统（个人自用）。
+小红书竞品商品**公开展示指标**自动监控工作台。单管理员使用，完整业务服务放在同一台 Ubuntu VPS：Next.js + Playwright + SQLite + Docker Compose + Caddy。
 
-> 当前进度：**M0 产品需求说明书已完成；Ubuntu 部署脚本与文档已提交**。尚未实现采集 Worker、管理后台或 VPS 部署。
->
-> 真实竞品指标的自动采集需要具备对应数据源的自动访问和使用授权；“系统能够定时运行”不等于“能获取真实成交订单”。
+## 当前开发状态（2026-10-18）
 
-## 项目文档
+**M1 基础应用和 M2 自动任务核心代码已提交**：登录、商品列表/详情、来源许可管理、SQLite 快照和任务、Playwright Worker、异常日志、Docker Compose、CI 测试。
 
-- [完整产品需求说明书（PRD v1.0）](docs/PRD.md)：功能范围、页面、数据源权限、Playwright 采集流程、数据质量、SQLite 逻辑表结构、运维安全、测试和验收标准。
+**尚未完成**：在你自己的 VPS 上部署；获准访问的真实小红书竞品销售数据源接入与选择器验证；连续 7 天稳定性验收。因此请勿将源码存在等同于“监控已上线”或“已获取真实订单销量”。
 
-## Ubuntu VPS 部署准备
+- [完整需求说明书](docs/PRD.md)
+- [Ubuntu VPS 部署指南](docs/DEPLOY.md)
+- [开发变更记录](docs/CHANGELOG.md)
+- [GitHub Actions 构建状态](https://github.com/DoThingsWithAI/xhs-monitor/actions)
 
-- [部署与运维指南](docs/DEPLOY.md)
-- [一键部署入口](scripts/deploy.sh)
+## 已实现功能
+
+- 单管理员：交互式创建管理员账号、加盐 scrypt 密码校验和带签名的 HttpOnly 会话
+- 商品链接：规范化、去重、单个/批量添加、暂停/恢复
+- 数据源权限：默认为**关闭**；仅明确许可自动访问、存储和内部分析的数据源才能排期
+- 自动化：持久化 SQLite 队列，重启可恢复，单 Worker、任务租约、指数退避、拒绝/验证码暂停
+- Playwright：隔离浏览器上下文、配置化 CSS 选择器、限定 HTTPS 主机、IP/域名限制
+- 观察快照：销量原始展示值、精度（精确/下界/缺失）、价格、时间和数据来源
+- 管理后台：监控总览、商品列表、历史观察、运行记录、告警及来源设置
+- 部署：Docker Compose 单机，SQLite 文件宿主机持久化，Caddy HTTPS
+
+## 部署准备（VPS）
 
 ```bash
-# 在 Ubuntu VPS 上执行；当前先检查和初始化，不会启动尚未实现的应用
-sudo bash scripts/deploy.sh doctor
-sudo bash scripts/deploy.sh prepare
-
-# Web/Worker/Compose 开发完成、配置域名与授权数据源之后
-sudo bash scripts/deploy.sh deploy
+apt-get update && apt-get install -y git python3
+git clone https://github.com/DoThingsWithAI/xhs-monitor.git /opt/xhs-monitor
+cd /opt/xhs-monitor
+bash scripts/deploy.sh doctor
+# 如没有 Docker：bash scripts/deploy.sh install-docker
+bash scripts/deploy.sh prepare
+nano .env
+# 将 APP_DOMAIN=CHANGE_ME 改成实际指向 VPS 的域名
+bash scripts/deploy.sh deploy
 ```
 
-部署脚本还支持 `install-docker`（显式安装）、`update`、`backup`、`status`；不会清除其他 Docker 项目，也不会覆盖已有 `.env`。
+**首次部署后，必须手动创建管理员**（不会生成默认账号）：
 
-## 已确认技术栈
+```bash
+docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml exec web npm run admin:init
+```
 
-- TypeScript + Playwright（浏览器自动化）
-- Next.js（Web 管理后台 + API）
-- SQLite + Drizzle ORM
-- Docker Compose + Caddy
-- Ubuntu VPS 单机部署（所有代码和数据运行于 VPS）
+然后通过 `https://你的域名` 登录。首次添加商品时默认会处于「等待来源授权」，这是预期行为。来源字段/授权未核实前，**不能**把监控标为成功。
 
-## 实施里程碑
+> 部署前须检查该 VPS 是否已有服务使用 80/443 端口。此 Compose 自带 Caddy，如果已有 Nginx/Caddy，应改为由现有反向代理接入，不能直接抢占端口。
+>
+> 系统能按时执行任务并不表示已获取真实小红书订单数据。“已售 1.2万+”只能代表展示门槛值变化，而不是精确新成交订单。
 
-1. **M0**：完整 PRD（已完成），Ubuntu 部署脚本（已提交，尚无应用可部署）
-2. **M1**：Next.js/SQLite/身份验证/容器基础设施
-3. **M2**：调度器、Playwright Worker、来源适配器、快照与错误处理
-4. **M3**：商品看板、趋势、任务日志及告警
-5. **M4**：VPS 部署、备份恢复、真实已许可数据源的连续自动监控验收
+## 开发
 
-需求更新时必须同步修改 [docs/PRD.md](docs/PRD.md)；代码迭代须更新 CHANGELOG 和技术/部署文档。
+```bash
+npm install
+DB_PATH=/tmp/xhs-monitor-dev.sqlite npm run db:init
+npm test
+npm run typecheck
+npm run build
+```
 
-**重要：** 未获得许可的数据源不得启用自动化采集。未经来源证实的“已售”展示值不能当成真实订单销量或 GMV。
+本项目的 Chromium 运行安全参照 [Playwright 官方 Docker 指南](https://playwright.dev/docs/docker)，使用 Playwright 版本对应的镜像和独立 seccomp 配置。
+
+## 仓库维护约束
+
+任何需求变动先更新 `docs/PRD.md`，代码变动更新 `docs/CHANGELOG.md` 和相关部署文档。不要提交真实 `.env`、SQLite 数据、Cookies、账号密钥、浏览器截图/Trace。
