@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import Database from 'better-sqlite3';
-import {initSchema} from '../packages/db';
-import {claimJob,finishSourceRequest,suspendSourceAfterRestriction,activateAwaitingBindings} from '../packages/db/queue';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+const testDir=mkdtempSync(join(tmpdir(),'xhs-pacing-'));
+process.env.DB_PATH=join(testDir,'test.sqlite');
+test.after(()=>rmSync(testDir,{recursive:true,force:true}));
 import {parseSourceGapSeconds} from '../packages/core/pacing';
 
 // Use a standalone :memory: database for source pacing functions that accept a DB.
@@ -16,6 +19,7 @@ test('source interval config enforces a conservative 60-second floor',()=>{
 });
 test('persisted gate holds until after the previous observation completes',async()=>{
  const {db,uuid}=await import('../packages/db');
+ const {claimJob,finishSourceRequest,suspendSourceAfterRestriction,activateAwaitingBindings}=await import('../packages/db/queue');
  const d=db();
  // Isolate this from tests/db.test.ts using a synthetic source and three jobs.
  const ts=Date.now()+1000000;
