@@ -54,7 +54,9 @@ def inspect(connection, product_id):
         "SELECT b.status, b.last_attempt_at,b.last_success_at,b.next_due_at,"
         " b.interval_seconds,b.blocked_reason,b.consecutive_failures,"
         " s.enabled AS source_enabled,s.automated_access_allowed AS access_allowed,"
-        " s.storage_allowed AS storage_allowed "
+        " s.storage_allowed AS storage_allowed,s.analysis_allowed AS analysis_allowed,"
+        " length(trim(s.permission_basis)) AS permission_basis_length,"
+        " s.permission_expires_at AS permission_expires_at "
         "FROM product_source_bindings b JOIN data_sources s ON s.id=b.source_id "
         "WHERE b.product_id=? ORDER BY b.created_at DESC LIMIT 1", (pid,)
     ).fetchone()
@@ -156,7 +158,27 @@ def main():
         binding=result["source"] or {}
         print("来源绑定:", binding.get("status", "无"),
               "| 来源启用:", binding.get("source_enabled"),
-              "| 自动访问许可:", binding.get("access_allowed"))
+              "| 自动访问许可:", binding.get("access_allowed"),
+              "| 存储许可:", binding.get("storage_allowed"),
+              "| 分析许可:", binding.get("analysis_allowed"))
+        if binding:
+            missing=[]
+            if not binding.get("source_enabled"):
+                missing.append("数据源未启用")
+            if not binding.get("access_allowed"):
+                missing.append("未核实自动访问权限")
+            if not binding.get("storage_allowed"):
+                missing.append("未核实存储权限")
+            if not binding.get("analysis_allowed"):
+                missing.append("未核实分析权限")
+            if (binding.get("permission_basis_length") or 0)<12:
+                missing.append("缺少有效授权依据")
+            if binding.get("permission_expires_at") is not None and binding["permission_expires_at"]<=now:
+                missing.append("来源许可过期")
+            if missing:
+                print("等待原因:", "、".join(missing))
+            elif binding.get("status")=="awaiting_authorization":
+                print("等待原因: 来源条件已满足但绑定仍待同步；更新 Worker 后检查最近任务。")
         print("Worker 近期有心跳:", result["worker_heartbeat_recent"],
               "| 最近心跳 UTC:", result["worker_last_heartbeat_utc"])
         print("最新观察含销量:", result["latest_attempt_has_sales"],
