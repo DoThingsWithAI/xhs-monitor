@@ -2,6 +2,7 @@
 import {useEffect,useState,useCallback} from 'react';
 import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
 import {sourceBlockingReason} from '@/packages/core/source-readiness';
+import {validateSourceForm} from '@/packages/core/source-form-validation';
 type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
@@ -26,7 +27,7 @@ async function api<T>(path:string,options?:RequestInit):Promise<T>{
  const res=await fetch(path,{...options,cache:'no-store',headers:{'Content-Type':'application/json',...options?.headers}});
  if(res.status===401){location.href='/login';throw new Error('登录已过期');}
  const body=await res.json();
- if(!res.ok)throw new Error(body.error||'操作失败');
+ if(!res.ok)throw new Error(Array.isArray(body.details)&&body.details.length?body.details.join('；'):(body.error||'操作失败'));
  return body.data as T;
 }
 function Trend({items}:{items:Observation[]}){
@@ -40,6 +41,7 @@ export default function Dashboard({username}:{username:string}){
  const [tab,setTab]=useState('products'),[products,setProducts]=useState<Product[]>([]),[stats,setStats]=useState<Stats|null>(null);
  const [runs,setRuns]=useState<Run[]>([]),[alerts,setAlerts]=useState<Alert[]>([]),[sources,setSources]=useState<Source[]>([]);
  const [urls,setUrls]=useState(''),[category,setCategory]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ const [sourceSaveError,setSourceSaveError]=useState('');
  const [detailId,setDetailId]=useState<string|null>(null),[history,setHistory]=useState<Observation[]>([]);
  const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:XHS_GOODS_SELECTORS.title as string,salesSelector:XHS_GOODS_SELECTORS.sales as string,priceSelector:XHS_GOODS_SELECTORS.price as string,shopSelector:XHS_GOODS_SELECTORS.shop as string,shopRatingSelector:XHS_GOODS_SELECTORS.shopRating as string,shopStatsSelector:XHS_GOODS_SELECTORS.shopStats as string});
  const refresh=useCallback(async()=>{
@@ -69,10 +71,15 @@ export default function Dashboard({username}:{username:string}){
   }catch(e){setMessage(e instanceof Error?e.message:'添加失败');}finally{setBusy(false);}
  }
  async function saveSource(){
-  setBusy(true);setMessage('');
+  setSourceSaveError('');setMessage('');
+  const issues=validateSourceForm(sourceForm);
+  if(issues.length){setSourceSaveError(issues.join('；'));return;}
+  setBusy(true);
   try{await api('/api/sources',{method:'PATCH',body:JSON.stringify(sourceForm)});
-   setMessage('来源设置已保存。启用前必须确认具备相应自动访问与存储授权。');await refresh();
-  }catch(e){setMessage(e instanceof Error?e.message:'保存失败');}finally{setBusy(false);}
+   setMessage('来源配置已保存。请查看监控任务状态；表单校验不代表第三方已授予许可。');
+   await refresh();
+  }catch(e){setSourceSaveError(e instanceof Error?e.message:'保存失败');}
+  finally{setBusy(false);}
  }
  async function updateProduct(id:string,monitor_status:string){
   try{await api('/api/products/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({monitor_status})});await refresh();}
@@ -87,6 +94,7 @@ export default function Dashboard({username}:{username:string}){
  }
  const recent=stats?.worker_heartbeat?Date.now()-stats.worker_heartbeat<600000:false;
  const sourceIssue=sources.length>0?sourceBlockingReason(sources.find(s=>s.id==='xhs-browser')):null;
+ const sourceFormIssues=validateSourceForm(sourceForm);
  return <div className="app-shell">
   <aside className="sidebar">
    <div className="logo"><span className="brand-mark">X</span><span>XHS Monitor<small>Competitor Intelligence</small></span></div>
@@ -128,10 +136,16 @@ export default function Dashboard({username}:{username:string}){
    {tab==='alerts'&&<section className="panel"><h2>采集与数据质量告警</h2><div className="table-scroll"><table><thead><tr><th>类型</th><th>级别</th><th>发生次数</th><th>最近发生</th><th>状态</th></tr></thead><tbody>{alerts.map(a=><tr key={a.id}><td>{a.type}</td><td>{a.severity}</td><td>{a.occurrences}</td><td>{date(a.last_seen_at)}</td><td>{a.status}</td></tr>)}</tbody></table></div>{!alerts.length&&<p className="muted">暂无异常告警。</p>}</section>}
    {tab==='settings'&&<section className="panel"><h2>自动采集来源</h2><p className="error">默认关闭。只有拥有明确的自动访问、保存和内部分析许可，才可以启用来源。配置选择器并不等同于取得授权。</p>
     <div className="form-grid">
-     <label>授权依据 / 使用许可说明<textarea value={sourceForm.permission_basis} rows={2} onChange={e=>setSourceForm(v=>({...v,permission_basis:e.target.value}))} placeholder="注明许可提供方、授权范围、有效期及依据（不得虚构）"/></label>
+     <label>授权依据 / 使用许可说明（启用时至少 12 个字符）
+       <textarea value={sourceForm.permission_basis} rows={2} onChange={e=>{setSourceForm(v=>({...v,permission_basis:e.target.value}));setSourceSaveError('');}} placeholder="如有真实许可，请注明提供方、授权范围、有效期及依据（不得虚构）"/>
+       <small>已填写 {sourceForm.permission_basis.trim().length} / 至少 12 字符。填写文本和勾选权限不能代替实际授权。</small>
+      </label>
      {([['titleSelector','商品标题 CSS 选择器'],['salesSelector','销量展示 CSS 选择器'],['priceSelector','价格 CSS 选择器'],['shopSelector','店铺名称 CSS 选择器'],['shopRatingSelector','卖家口碑 CSS 选择器'],['shopStatsSelector','店铺销量/粉丝行 CSS 选择器']] as const).map(([k,label])=><label key={k}>{label}<input value={sourceForm[k]} onChange={e=>setSourceForm(v=>({...v,[k]:e.target.value}))} placeholder="配置获得许可的页面字段"/></label>)}
      {([['automated_access_allowed','已核实允许自动访问'],['storage_allowed','已核实允许存储'],['analysis_allowed','已核实允许内部分析'],['enabled','启用来源']] as const).map(([k,label])=><label className="check" key={k}><input type="checkbox" checked={sourceForm[k]} onChange={e=>setSourceForm(v=>({...v,[k]:e.target.checked}))}/>{label}</label>)}
-    </div><div className="actions"><button disabled={busy} onClick={saveSource}>保存来源设置</button></div>
+    </div>
+    {sourceFormIssues.length>0&&<p className="error" role="status">启用前需要补全：{sourceFormIssues.join('；')}</p>}
+    {sourceSaveError&&<p className="error" role="alert">保存失败：{sourceSaveError}</p>}
+    <div className="actions"><button disabled={busy} onClick={saveSource}>{busy?'正在保存…':'保存来源设置'}</button></div>
     <p className="footnote">Playwright 只访问被允许的 HTTPS 域名；遇到验证码、401/403/429 会暂停或终止，不提供绕过手段。</p>
    </section>}
    <footer>© XHS Monitor · 本工具分析的是来源展示指标，不是实际支付订单数据。</footer>

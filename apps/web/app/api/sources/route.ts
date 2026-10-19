@@ -2,6 +2,7 @@ import {NextRequest,NextResponse} from 'next/server';
 import {getAdmin,sameOrigin} from '@/packages/core/auth';
 import {db} from '@/packages/db';
 import {activateAwaitingBindings} from '@/packages/db/queue';
+import {validateSourceForm} from '@/packages/core/source-form-validation';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 export async function GET(req:NextRequest){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
@@ -19,9 +20,13 @@ export async function PATCH(req:NextRequest){
  const shop=typeof body.shopSelector==='string'?body.shopSelector.trim().slice(0,250):'';
  const shopRating=typeof body.shopRatingSelector==='string'?body.shopRatingSelector.trim().slice(0,250):'';
  const shopStats=typeof body.shopStatsSelector==='string'?body.shopStatsSelector.trim().slice(0,250):'';
- const license=body.automated_access_allowed===true && body.storage_allowed===true && body.analysis_allowed===true;
- if(enabled && (!license || basis.length<12 || !sales || !title))
-  return NextResponse.json({error:'PERMISSION_AND_SELECTORS_REQUIRED'},{status:400});
+ const problems=validateSourceForm({
+  enabled:!!enabled,automated_access_allowed:body.automated_access_allowed===true,
+  storage_allowed:body.storage_allowed===true,analysis_allowed:body.analysis_allowed===true,
+  permission_basis:basis,titleSelector:title,salesSelector:sales
+ });
+ if(problems.length)
+  return NextResponse.json({error:'PERMISSION_AND_SELECTORS_REQUIRED',details:problems},{status:400});
  const ts=Date.now(),d=db();
  d.transaction(()=>{
   d.prepare('UPDATE data_sources SET enabled=?,automated_access_allowed=?,storage_allowed=?,analysis_allowed=?,permission_basis=?,selectors_json=?,updated_at=? WHERE id=?')
