@@ -1,6 +1,6 @@
 import {db,uuid} from '../../packages/db';
 import {insertCollectedObservation} from '../../packages/db/save-observation';
-import {scheduleDue,claimJob,permissionOk,appendAlert,heartbeat,type JobRow} from '../../packages/db/queue';
+import {scheduleDue,claimJob,permissionOk,appendAlert,heartbeat,finishSourceRequest,suspendSourceAfterRestriction,type JobRow} from '../../packages/db/queue';
 import {collectAllowedBrowserPage,CollectError,closeBrowser} from '../../packages/collectors/browser';
 
 const owner='worker-'+process.pid;
@@ -16,6 +16,7 @@ function persist(job:JobRow,obs:Awaited<ReturnType<typeof collectAllowedBrowserP
   const previous=d.prepare('SELECT * FROM product_observations WHERE product_id=? AND source_id=? ORDER BY observed_at DESC LIMIT 1').get(job.product_id,job.source_id) as any;
   const quality=obs.sales.value===null?'partial':'success';
   insertCollectedObservation(d,job,run.id,ts,obs,quality);
+  finishSourceRequest(d,job.source_id,ts);
   d.prepare('UPDATE products SET title=COALESCE(?,title),shop_name=COALESCE(?,shop_name),updated_at=? WHERE id=?').run(obs.title,obs.shop,ts,job.product_id);
   d.prepare('UPDATE collection_runs SET result=?,finished_at=? WHERE id=?').run(quality,ts,run.id);
   d.prepare("UPDATE collection_jobs SET status=?,lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?")
@@ -42,10 +43,12 @@ function fail(job:JobRow,error:unknown){
    .run(blocked?'blocked':retry?'retry_wait':'failed',retry?ts+Math.min(300000,2**job.attempt_count*30000):null,ts,job.id);
   d.prepare('UPDATE product_source_bindings SET consecutive_failures=consecutive_failures+1,updated_at=? WHERE id=?')
    .run(ts,job.binding_id);
-  if(blocked)d.prepare("UPDATE product_source_bindings SET status='blocked',blocked_reason=? WHERE id=?").run(e.code,job.binding_id);
+  finishSourceRequest(d,job.source_id,ts);
+  if(blocked)suspendSourceAfterRestriction(d,job.source_id,e.code,ts);
   if(blocked||!retry)appendAlert(job.product_id,job.source_id,e.code,'Automated collection stopped or failed',blocked?'critical':'warning');
  })();
  console.error(JSON.stringify({event:'job_failed',jobId:job.id,code:e.code,blocked,retry}));
+ if(blocked)console.error(JSON.stringify({event:'source_suspended',sourceId:job.source_id,code:e.code}));
 }
 async function processOne(job:JobRow){
  const source=db().prepare('SELECT * FROM data_sources WHERE id=?').get(job.source_id) as any;

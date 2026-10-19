@@ -1,5 +1,6 @@
 import {db,uuid} from '../db';
 import {parseXhsGoodsUrl} from '../core/urls';
+import {sourceGapMs} from '../core/pacing';
 
 export type JobRow={id:string;binding_id:string;attempt_count:number;product_id:string;source_id:string;canonical_url:string;selectors_json:string;allowed_hosts_json:string};
 export function permissionOk(s:any,now=Date.now()) {
@@ -88,21 +89,61 @@ export function scheduleDue() {
  })();
  return bindings.length;
 }
-export function claimJob(owner:string):JobRow|null {
- const d=db(),ts=Date.now();
+/** Claim at most one request for a source within the configured spacing window.
+ * Persisting the gate in SQLite preserves throttling across worker restarts.
+ * The immediate transaction serializes multiple workers so they cannot both claim
+ * jobs on the same source. Only sources with valid recorded permissions are eligible.
+ */
+export function claimJob(owner:string, ts=Date.now(), gapMs=sourceGapMs()):JobRow|null {
+ const d=db();
  return d.transaction(()=>{
   const row=d.prepare(
-   "SELECT j.id,j.binding_id,j.attempt_count,b.product_id,b.source_id,p.canonical_url,s.selectors_json,s.allowed_hosts_json FROM collection_jobs j JOIN product_source_bindings b ON b.id=j.binding_id JOIN products p ON p.id=b.product_id JOIN data_sources s ON s.id=b.source_id WHERE (j.status='queued' OR (j.status='retry_wait' AND j.next_retry_at<=?) OR (j.status='running' AND j.lease_expires_at<=?)) AND b.status='ready' AND p.monitor_status='active' ORDER BY j.scheduled_for LIMIT 1"
-  ).get(ts,ts) as JobRow|undefined;
+   "SELECT j.id,j.binding_id,j.attempt_count,b.product_id,b.source_id,p.canonical_url,s.selectors_json,s.allowed_hosts_json "+
+   "FROM collection_jobs j JOIN product_source_bindings b ON b.id=j.binding_id "+
+   "JOIN products p ON p.id=b.product_id JOIN data_sources s ON s.id=b.source_id "+
+   "LEFT JOIN source_request_pacing pace ON pace.source_id=b.source_id "+
+   "WHERE (j.status='queued' OR (j.status='retry_wait' AND j.next_retry_at<=?) OR (j.status='running' AND j.lease_expires_at<=?)) "+
+   "AND b.status='ready' AND p.monitor_status='active' "+
+   "AND s.enabled=1 AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 "+
+   "AND length(trim(s.permission_basis))>=12 "+
+   "AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) "+
+   "AND COALESCE(pace.next_allowed_at,0)<=? "+
+   "AND NOT EXISTS(SELECT 1 FROM collection_jobs other "+
+   "JOIN product_source_bindings ob ON ob.id=other.binding_id "+
+   "WHERE ob.source_id=b.source_id AND other.status='running' "+
+   "AND other.id<>j.id AND other.lease_expires_at>?) "+
+   "ORDER BY j.scheduled_for LIMIT 1"
+  ).get(ts,ts,ts,ts,ts) as JobRow|undefined;
   if(!row)return null;
-  const changed=d.prepare("UPDATE collection_jobs SET status='running',lease_owner=?,lease_expires_at=?,attempt_count=attempt_count+1,updated_at=? WHERE id=?").run(owner,ts+120000,ts,row.id);
+  const changed=d.prepare("UPDATE collection_jobs SET status='running',lease_owner=?,lease_expires_at=?,attempt_count=attempt_count+1,updated_at=? WHERE id=?")
+   .run(owner,ts+120000,ts,row.id);
   if(!changed.changes)return null;
+  d.prepare("INSERT INTO source_request_pacing(source_id,last_started_at,next_allowed_at) VALUES(?,?,?) "+
+    "ON CONFLICT(source_id) DO UPDATE SET last_started_at=excluded.last_started_at, "+
+    "next_allowed_at=MAX(source_request_pacing.next_allowed_at,excluded.next_allowed_at)")
+   .run(row.source_id,ts,ts+gapMs);
   d.prepare("UPDATE collection_runs SET result='abandoned',finished_at=? WHERE job_id=? AND finished_at IS NULL").run(ts,row.id);
   d.prepare('INSERT INTO collection_runs (id,job_id,attempt_no,started_at) VALUES (?,?,?,?)').run(uuid(),row.id,row.attempt_count+1,ts);
   d.prepare('UPDATE product_source_bindings SET last_attempt_at=?,updated_at=? WHERE id=?').run(ts,ts,row.binding_id);
   return {...row,attempt_count:row.attempt_count+1};
- })();
+ }).immediate();
 }
+
+/** Adds a full gap AFTER finishing, so long page loads do not compress spacing. */
+export function finishSourceRequest(d:ReturnType<typeof db>, sourceId:string, finishedAt:number, gapMs=sourceGapMs()):void {
+ d.prepare("UPDATE source_request_pacing SET next_allowed_at=MAX(next_allowed_at,?) WHERE source_id=?")
+  .run(finishedAt+gapMs,sourceId);
+}
+
+/** Access restrictions halt all pending work for this source until manual review. */
+export function suspendSourceAfterRestriction(d:ReturnType<typeof db>,sourceId:string,reason:string,ts=Date.now()):void {
+ d.prepare("UPDATE data_sources SET enabled=0,updated_at=? WHERE id=?").run(ts,sourceId);
+ d.prepare("UPDATE product_source_bindings SET status='blocked',blocked_reason=?,updated_at=? WHERE source_id=? AND status='ready'")
+  .run(reason,ts,sourceId);
+ d.prepare("UPDATE collection_jobs SET status='cancelled',updated_at=? WHERE status IN ('queued','retry_wait') AND binding_id IN (SELECT id FROM product_source_bindings WHERE source_id=?)")
+  .run(ts,sourceId);
+}
+
 export function appendAlert(productId:string,sourceId:string,type:string,details:string,severity='warning'){
  const d=db(),ts=Date.now(),key=productId+':'+sourceId+':'+type;
  d.prepare('INSERT INTO alert_events (id,product_id,source_id,type,severity,dedupe_key,first_seen_at,last_seen_at,details_json) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(dedupe_key) DO UPDATE SET last_seen_at=excluded.last_seen_at,occurrences=occurrences+1,status=?').run(uuid(),productId,sourceId,type,severity,key,ts,ts,JSON.stringify({message:details.slice(0,150)}),'open');
