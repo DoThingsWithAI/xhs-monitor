@@ -28,6 +28,8 @@ services:
     environment:
       NODE_ENV: production
       DB_PATH: /data/xhs-monitor.sqlite
+      # Minimum time between permitted browser visits on the same source.
+      XHS_SOURCE_MIN_GAP_SECONDS: ${XHS_SOURCE_MIN_GAP_SECONDS:-120}
     volumes:
       - ${XHS_DATA_DIR:-/var/lib/xhs-monitor}:/data
     restart: unless-stopped

@@ -32,7 +32,7 @@ export async function PATCH(req:NextRequest){
   d.prepare('UPDATE data_sources SET enabled=?,automated_access_allowed=?,storage_allowed=?,analysis_allowed=?,permission_basis=?,selectors_json=?,updated_at=? WHERE id=?')
    .run(enabled,body.automated_access_allowed===true?1:0,body.storage_allowed===true?1:0,body.analysis_allowed===true?1:0,basis,JSON.stringify({title,sales,price,shop,shopRating,shopStats}),ts,'xhs-browser');
   if(enabled){
-   activateAwaitingBindings(d,'xhs-browser',ts);
+   activateAwaitingBindings(d,'xhs-browser',ts,true); // explicit admin save resumes stopped sources after review
   }else{
    d.prepare("UPDATE product_source_bindings SET status='awaiting_authorization',updated_at=? WHERE source_id='xhs-browser' AND status='ready'").run(ts);
    d.prepare("UPDATE collection_jobs SET status='cancelled',updated_at=? WHERE status IN ('queued','retry_wait') AND binding_id IN (SELECT id FROM product_source_bindings WHERE source_id='xhs-browser')").run(ts);

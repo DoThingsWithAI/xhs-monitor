@@ -16,12 +16,13 @@ function enqueueImmediate(d:ReturnType<typeof db>, bindingId:string, ts:number, 
  return r.changes>0;
 }
 /** Activate only waiting, active products; saving settings repeatedly creates no duplicates. */
-export function activateAwaitingBindings(d:ReturnType<typeof db>, sourceId:string, ts=Date.now()):number {
+export function activateAwaitingBindings(d:ReturnType<typeof db>, sourceId:string, ts=Date.now(),manualResume=false):number {
  const source=d.prepare('SELECT * FROM data_sources WHERE id=?').get(sourceId) as any;
  if(!source || !permissionOk(source,ts))return 0;
- const bindings=d.prepare("SELECT b.id,b.interval_seconds FROM product_source_bindings b JOIN products p ON p.id=b.product_id WHERE b.source_id=? AND b.status='awaiting_authorization' AND p.monitor_status='active'")
+ const eligible=manualResume?"b.status IN ('awaiting_authorization','blocked')":"b.status='awaiting_authorization'";
+ const bindings=d.prepare("SELECT b.id,b.interval_seconds FROM product_source_bindings b JOIN products p ON p.id=b.product_id WHERE b.source_id=? AND "+eligible+" AND p.monitor_status='active'")
   .all(sourceId) as {id:string;interval_seconds:number}[];
- const update=d.prepare("UPDATE product_source_bindings SET status='ready',next_due_at=?,blocked_reason=NULL,updated_at=? WHERE id=? AND status='awaiting_authorization'");
+ const update=d.prepare("UPDATE product_source_bindings SET status='ready',next_due_at=?,blocked_reason=NULL,updated_at=? WHERE id=? AND "+(manualResume?"status IN ('awaiting_authorization','blocked')":"status='awaiting_authorization'"));
  const cancel=d.prepare("UPDATE collection_jobs SET status='cancelled',updated_at=? WHERE binding_id=? AND status IN ('queued','retry_wait')");
  let count=0;
  for(const b of bindings) {
