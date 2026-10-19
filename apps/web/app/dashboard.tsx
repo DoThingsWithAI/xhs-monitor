@@ -1,17 +1,18 @@
 'use client';
 import {useEffect,useState,useCallback} from 'react';
 import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
+import {sourceBlockingReason} from '@/packages/core/source-readiness';
 type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
-type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;selectors_json:string;};
+type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
 type Alert={id:string;type:string;severity:string;occurrences:number;last_seen_at:number;status:string;details_json:string};
 type Observation={observed_at:number;sales_raw_text:string|null;sales_value:number|null;sales_precision:string;price_minor:number|null;quality_status:string;shop_observed:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_value:number|null;shop_sales_precision:string;shop_followers_raw_text:string|null;shop_followers_value:number|null;shop_followers_precision:string};
 const date=(value:number|null|undefined)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
 const yuan=(c:number|null|undefined)=>c===null||c===undefined?'—':'¥'+(c/100).toFixed(2);
-function statusName(p:Product){
+function statusName(p:Product,sourceIssue:string|null){
  if(p.monitor_status==='paused')return '已暂停';
- if(p.binding_status==='awaiting_authorization')return '等待来源授权';
+ if(p.binding_status==='awaiting_authorization')return sourceIssue??'来源配置已满足，等待任务绑定同步';
  if(p.binding_status==='blocked')return '来源已阻断';
  if(p.binding_status!=='ready')return '未准备就绪';
  if(p.latest_job_status==='queued' && !p.last_success_at)return '首次采集排队中';
@@ -85,6 +86,7 @@ export default function Dashboard({username}:{username:string}){
   await api('/api/auth/logout',{method:'POST'});location.href='/login';
  }
  const recent=stats?.worker_heartbeat?Date.now()-stats.worker_heartbeat<600000:false;
+ const sourceIssue=sources.length>0?sourceBlockingReason(sources.find(s=>s.id==='xhs-browser')):null;
  return <div className="app-shell">
   <aside className="sidebar">
    <div className="logo"><span className="brand-mark">X</span><span>XHS Monitor<small>Competitor Intelligence</small></span></div>
@@ -98,6 +100,10 @@ export default function Dashboard({username}:{username:string}){
     {[['监控商品',stats?.products??'—'],['已排期',stats?.ready??'—'],['来源阻断',stats?.blocked??'—'],['未处理告警',stats?.alerts??'—']].map(([name,v])=><div className="metric" key={name}><span className="muted">{name}</span><strong>{v}</strong></div>)}
    </div>
    <div className={recent?'worker-status ok':'worker-status warn'}>Worker：{recent?'运行心跳正常':'未检测到近期心跳'} · 上次心跳：{date(stats?.worker_heartbeat)} · 不代表销量采集成功</div>
+   {tab==='products'&&sourceIssue&&<div className="notice" role="status">
+    <span><strong>自动监控暂不可用：</strong>{sourceIssue}。字段解析代码已提交，但不会自动授予站点访问权限。</span>
+    <button className="secondary" onClick={()=>setTab('settings')}>查看来源设置</button>
+   </div>}
    {tab==='products'&&<section className="panel">
      <h2>添加竞品商品</h2><p className="muted">每行一个小红书商品链接，最多 20 条。合法来源启用后自动开始首采。</p>
      <textarea rows={3} value={urls} placeholder="https://www.xiaohongshu.com/..." onChange={e=>setUrls(e.target.value)}/>
@@ -109,7 +115,7 @@ export default function Dashboard({username}:{username:string}){
       {products.map(p=><tr key={p.id}><td><strong>{p.title||'待采集商品名称'}</strong><small>{p.shop_name||p.category||'—'}</small><a href={p.canonical_url} target="_blank" rel="noopener noreferrer">原始商品链接 ↗</a></td>
        <td>{p.sales_raw_text||'未知'}<small>{p.sales_precision||'无数据'}</small></td><td>{yuan(p.price_minor)}</td>
        <td><strong>{p.shop_rating_raw_text??'未知'}</strong><small>店铺已售：{p.shop_sales_raw_text??'未知'} · 粉丝：{p.shop_followers_raw_text??'未知'}</small></td>
-       <td><span className={'tag '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p)}</span></td>
+       <td><span className={'tag '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p,sourceIssue)}</span></td>
        <td>{date(p.last_success_at)}</td><td><button className="text-button" onClick={()=>void showDetail(p.id)}>历史</button> <button className="text-button" onClick={()=>void updateProduct(p.id,p.monitor_status==='active'?'paused':'active')}>{p.monitor_status==='active'?'暂停':'恢复'}</button></td>
       </tr>)}
       {!products.length&&<tr><td colSpan={7} className="empty">还没有商品。添加链接后系统会检查来源许可并创建监控任务。</td></tr>}
