@@ -75,3 +75,25 @@ test('migration expands legacy snapshot schema and preserves historical values',
   assert.equal(historic.shop_sales_precision,'missing');
  }finally{legacy.close();}
 });
+
+test('worker scheduling reconciles stale awaiting binding only when source is authorized',async()=>{
+ const {db,uuid}=await import('../packages/db');
+ const {scheduleDue}=await import('../packages/db/queue');
+ const d=db(),ts=Date.now();
+ const pid=uuid(),bindingId=uuid(),link='https://www.xiaohongshu.com/goods-detail/8a290d7c3222c60001e051bf';
+ d.prepare('INSERT INTO products (id,original_url,canonical_url,created_at,updated_at) VALUES (?,?,?,?,?)').run(pid,link,link,ts,ts);
+ d.prepare("INSERT INTO product_source_bindings (id,product_id,source_id,status,interval_seconds,next_due_at,created_at,updated_at) VALUES (?,?,'xhs-browser','awaiting_authorization',86400,?,?,?)")
+  .run(bindingId,pid,ts,ts,ts);
+ d.prepare("UPDATE data_sources SET enabled=0 WHERE id='xhs-browser'").run();
+ scheduleDue();
+ assert.equal((d.prepare('SELECT status FROM product_source_bindings WHERE id=?').get(bindingId) as {status:string}).status,'awaiting_authorization');
+ const before=(d.prepare('SELECT count(*) AS n FROM collection_jobs WHERE binding_id=?').get(bindingId) as {n:number}).n;
+ assert.equal(before,0);
+ d.prepare("UPDATE data_sources SET enabled=1,automated_access_allowed=1,storage_allowed=1,analysis_allowed=1,permission_basis='Documented automated access and storage permission',permission_expires_at=NULL WHERE id='xhs-browser'").run();
+ // Deliberately simulate a previously authorized source with a stale awaiting row.
+ scheduleDue();
+ assert.equal((d.prepare('SELECT status FROM product_source_bindings WHERE id=?').get(bindingId) as {status:string}).status,'ready');
+ assert.equal((d.prepare("SELECT count(*) AS n FROM collection_jobs WHERE binding_id=? AND status='queued'").get(bindingId) as {n:number}).n,1);
+ scheduleDue();
+ assert.equal((d.prepare('SELECT count(*) AS n FROM collection_jobs WHERE binding_id=?').get(bindingId) as {n:number}).n,1);
+});

@@ -67,6 +67,14 @@ export function createProduct(url:string,category='') {
 }
 export function scheduleDue() {
  const d=db(),ts=Date.now();
+ // Recover stale awaiting bindings only when the source is genuinely configured
+ // and authorized. Never change permission flags here or bypass their checks.
+ const sources=d.prepare('SELECT * FROM data_sources WHERE enabled=1').all() as any[];
+ d.transaction(()=>{
+  for(const source of sources){
+   if(permissionOk(source,ts))activateAwaitingBindings(d,source.id,ts);
+  }
+ })();
  const bindings=d.prepare(
   'SELECT b.* FROM product_source_bindings b JOIN products p ON p.id=b.product_id JOIN data_sources s ON s.id=b.source_id WHERE b.status=? AND b.next_due_at<=? AND p.monitor_status=? AND s.enabled=1 AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 AND length(trim(s.permission_basis))>=12 AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) ORDER BY b.next_due_at LIMIT 50'
  ).all('ready',ts,'active',ts) as any[];
