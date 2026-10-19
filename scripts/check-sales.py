@@ -173,7 +173,7 @@ def main():
                 missing.append("未核实分析权限")
             if (binding.get("permission_basis_length") or 0)<12:
                 missing.append("缺少有效授权依据")
-            if binding.get("permission_expires_at") is not None and binding["permission_expires_at"]<=now:
+            if binding.get("permission_expires_at") is not None and binding["permission_expires_at"]<=datetime.now(tz=timezone.utc).timestamp()*1000:
                 missing.append("来源许可过期")
             if missing:
                 print("等待原因:", "、".join(missing))
