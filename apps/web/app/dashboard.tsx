@@ -3,7 +3,8 @@ import {useEffect,useState,useCallback} from 'react';
 import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
 import {sourceBlockingReason} from '@/packages/core/source-readiness';
 import {validateSourceForm} from '@/packages/core/source-form-validation';
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
+import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;trend_points:SalesTrendPoint[];shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
@@ -117,17 +118,40 @@ export default function Dashboard({username}:{username:string}){
      <textarea rows={3} value={urls} placeholder="https://www.xiaohongshu.com/..." onChange={e=>setUrls(e.target.value)}/>
      <div className="actions"><input value={category} onChange={e=>setCategory(e.target.value)} placeholder="分类（可选，例如：班主任资料）"/><button onClick={add} disabled={busy||!urls.trim()}>{busy?'处理中…':'添加并建立监控'}</button></div>
    </section>}
-   {tab==='products'&&<section className="panel">
-     <div className="panel-head"><h2>商品列表</h2><span className="muted">{products.length} 个商品</span></div>
-     <div className="table-scroll"><table><thead><tr><th>商品 / 店铺</th><th>商品已售</th><th>价格</th><th>店铺口碑 / 已售 / 粉丝数</th><th>状态</th><th>最近有效数据</th><th>操作</th></tr></thead><tbody>
-      {products.map(p=><tr key={p.id}><td><strong>{p.title||'待采集商品名称'}</strong><small>{p.shop_name||p.category||'—'}</small><a href={p.canonical_url} target="_blank" rel="noopener noreferrer">原始商品链接 ↗</a></td>
-       <td>{p.sales_raw_text||'未知'}<small>{p.sales_precision||'无数据'}</small></td><td>{yuan(p.price_minor)}</td>
-       <td><strong>{p.shop_rating_raw_text??'未知'}</strong><small>店铺已售：{p.shop_sales_raw_text??'未知'} · 粉丝：{p.shop_followers_raw_text??'未知'}</small></td>
-       <td><span className={'tag '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p,sourceIssue)}</span></td>
-       <td>{date(p.last_success_at)}</td><td><button className="text-button" onClick={()=>void showDetail(p.id)}>历史</button> <button className="text-button" onClick={()=>void updateProduct(p.id,p.monitor_status==='active'?'paused':'active')}>{p.monitor_status==='active'?'暂停':'恢复'}</button></td>
-      </tr>)}
-      {!products.length&&<tr><td colSpan={7} className="empty">还没有商品。添加链接后系统会检查来源许可并创建监控任务。</td></tr>}
-     </tbody></table></div>
+   {tab==='products'&&<section className="panel monitored-products">
+     <div className="panel-head"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 每个商品显示最近 30 次有效观察</span></div>
+     {products.length===0?<p className="empty">还没有商品。添加链接后，商品卡片将在这里出现；只有真实采集数据才会形成折线图。</p>:
+      <div className="product-card-grid">
+       {products.map(p=>{
+        const trend=p.trend_points||[];
+        const latest=trend.length?trend[trend.length-1]:null;
+        return <article className="product-card" key={p.id}>
+         <div className="product-card-top">
+          <div className="product-card-title">
+           <strong title={p.title||p.canonical_url}>{p.title||'待采集商品名称'}</strong>
+           <span>{p.shop_name||p.category||'店铺信息待采集'}</span>
+          </div>
+          <span className={'tag product-card-status '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p,sourceIssue)}</span>
+         </div>
+         <div className="product-card-kpis">
+          <div><small>最近有效商品已售</small><strong>{latest?(latest.sales_raw_text||latest.sales.toLocaleString('zh-CN')):'—'}</strong></div>
+          <div><small>当前展示价格</small><strong>{yuan(p.price_minor)}</strong></div>
+          <div><small>卖家口碑</small><strong>{p.shop_rating_raw_text??'—'}</strong></div>
+          <div><small>店铺已售 / 粉丝</small><strong className="product-card-small-number">{p.shop_sales_raw_text??'—'} / {p.shop_followers_raw_text??'—'}</strong></div>
+         </div>
+         <SalesSparkline points={trend}/>
+         <div className="product-card-footer">
+          <small>最近有效销量：{latest?date(latest.t):'尚无记录'}</small>
+          <div>
+           <a href={p.canonical_url} target="_blank" rel="noopener noreferrer">商品链接 ↗</a>
+           <button className="text-button" onClick={()=>void showDetail(p.id)}>明细</button>
+           <button className="text-button" onClick={()=>void updateProduct(p.id,p.monitor_status==='active'?'paused':'active')}>{p.monitor_status==='active'?'暂停':'恢复'}</button>
+          </div>
+         </div>
+        </article>;
+       })}
+      </div>}
+     <p className="footnote">折线图显示的是来源页面的累计展示销量，不代表真实成交订单或周期新增销量；包含“万+”等近似展示时请查看精度提示。暂无折线图通常是因为还没有有效采集，不能用样例数据代替。</p>
     </section>}
    {tab==='products'&&detailId&&<section className="panel"><div className="panel-head"><h2>历史观察</h2><button className="ghost" onClick={()=>setDetailId(null)}>关闭</button></div><Trend items={history}/>
     <div className="table-scroll"><table><thead><tr><th>采集时间</th><th>商品已售</th><th>销量精度</th><th>价格</th><th>店铺名称</th><th>口碑</th><th>店铺已售</th><th>粉丝数</th><th>数据质量</th></tr></thead><tbody>{history.map(o=><tr key={o.observed_at}><td>{date(o.observed_at)}</td><td>{o.sales_raw_text||'未知'}</td><td>{o.sales_precision}</td><td>{yuan(o.price_minor)}</td><td>{o.shop_observed??'—'}</td><td>{o.shop_rating_raw_text??'—'}</td><td>{o.shop_sales_raw_text??'—'}<small>{o.shop_sales_precision}</small></td><td>{o.shop_followers_raw_text??'—'}<small>{o.shop_followers_precision}</small></td><td>{o.quality_status}</td></tr>)}</tbody></table></div>
