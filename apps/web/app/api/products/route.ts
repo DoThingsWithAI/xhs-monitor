@@ -2,11 +2,13 @@ import {NextRequest,NextResponse} from 'next/server';
 import {getAdmin,sameOrigin} from '@/packages/core/auth';
 import {db} from '@/packages/db';
 import {createProduct} from '@/packages/db/queue';
+import {getProductSalesTrends} from '@/packages/db/product-trends';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 export async function GET(req:NextRequest){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
  const rows=db().prepare("SELECT p.*,b.status AS binding_status,b.last_success_at,b.next_due_at,b.consecutive_failures, (SELECT j.status FROM collection_jobs j WHERE j.binding_id=b.id ORDER BY j.created_at DESC, j.rowid DESC LIMIT 1) AS latest_job_status, o.sales_raw_text,o.sales_precision,o.price_minor,o.observed_at,o.shop_rating_raw_text,o.shop_rating_hundredths,o.shop_sales_raw_text,o.shop_sales_value,o.shop_sales_precision,o.shop_followers_raw_text,o.shop_followers_value,o.shop_followers_precision FROM products p LEFT JOIN product_source_bindings b ON b.product_id=p.id AND b.source_id='xhs-browser' LEFT JOIN product_observations o ON o.id=(SELECT id FROM product_observations WHERE product_id=p.id ORDER BY observed_at DESC LIMIT 1) WHERE p.monitor_status<>'deleted' ORDER BY p.created_at DESC LIMIT 150").all();
- return NextResponse.json({data:rows});
+ const trends=getProductSalesTrends(db(),(rows as Array<{id:string}>).map(row=>row.id),'xhs-browser');
+ return NextResponse.json({data:(rows as Array<{id:string}>).map(row=>({...row,trend_points:trends[row.id]||[]}))});
 }
 export async function POST(req:NextRequest){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
