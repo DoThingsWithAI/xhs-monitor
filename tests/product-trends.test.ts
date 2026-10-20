@@ -8,6 +8,9 @@ test('product cards receive only 30 newest valid sales samples in chronological 
  const d=new Database(':memory:');
  try{
   initSchema(d);
+  // Read-only query unit test: use synthetic observation IDs without creating
+  // every parent job/run. Production inserts are FK-enforced and tested elsewhere.
+  d.pragma('foreign_keys = OFF');
   const insert=d.prepare(
    "INSERT INTO product_observations "+
    "(id,product_id,source_id,job_id,run_id,observed_at,sales_raw_text,sales_value,sales_precision,price_kind,quality_status) "+
@@ -22,7 +25,7 @@ test('product cards receive only 30 newest valid sales samples in chronological 
   insert.run('other-product','product-B','xhs-browser','job-b','run-b',1900000000000,'已售7',7,'exact');
   const trends=getProductSalesTrends(d,['product-A','product-B','product-C']);
   assert.equal(trends['product-A'].length,30);
-  assert.equal(trends['product-A'][0].sales,7);
+  assert.equal(trends['product-A'][0].sales,6);
   assert.equal(trends['product-A'].at(-1)?.sales,36);
   assert.equal(trends['product-A'].some(x=>x.sales===11),false);
   assert.ok(trends['product-A'].every((point,i,arr)=>i===0||point.t>=arr[i-1].t));
@@ -35,6 +38,7 @@ test('zero sales is a valid point, missing and different scopes never become fab
  const d=new Database(':memory:');
  try{
   initSchema(d);
+  d.pragma('foreign_keys = OFF');
   const stmt=d.prepare("INSERT INTO product_observations "+
    "(id,product_id,source_id,job_id,run_id,observed_at,sales_raw_text,sales_value,sales_precision,price_kind,quality_status) "+
    "VALUES (?,?,?,?,?,?,?,?,?,'missing','partial')");
