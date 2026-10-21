@@ -88,6 +88,22 @@ def inspect(connection, product_id):
         "WHERE binding_id IN (SELECT id FROM product_source_bindings WHERE product_id=?) "
         "GROUP BY status", (pid,)
     ).fetchall()
+    latest_job = connection.execute(
+        "SELECT j.status, j.scheduled_for, j.attempt_count, j.next_retry_at, "
+        " j.lease_expires_at, j.created_at "
+        "FROM collection_jobs j "
+        "JOIN product_source_bindings b ON b.id=j.binding_id "
+        "WHERE b.product_id=? ORDER BY j.created_at DESC, j.rowid DESC LIMIT 1",
+        (pid,)
+    ).fetchone()
+    pacing_available = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_request_pacing'"
+    ).fetchone() is not None
+    pacing = connection.execute(
+        "SELECT pace.last_started_at, pace.next_allowed_at FROM source_request_pacing pace "
+        "JOIN product_source_bindings b ON b.source_id=pace.source_id "
+        "WHERE b.product_id=? LIMIT 1", (pid,)
+    ).fetchone() if pacing_available else None
     heartbeat = connection.execute(
         "SELECT last_seen_at FROM system_heartbeats WHERE name='worker'"
     ).fetchone()
@@ -116,7 +132,18 @@ def inspect(connection, product_id):
             if latest_sales else None),
         "recent_runs": [{**dict(r), "started_at_utc": iso(r["started_at"]),
                          "finished_at_utc": iso(r["finished_at"])} for r in recent_runs],
-        "job_counts": {r["status"]: r["total"] for r in queued}
+        "job_counts": {r["status"]: r["total"] for r in queued},
+        "latest_job": (
+            {**dict(latest_job),
+             "scheduled_for_utc": iso(latest_job["scheduled_for"]),
+             "next_retry_at_utc": iso(latest_job["next_retry_at"]),
+             "lease_expires_at_utc": iso(latest_job["lease_expires_at"])}
+            if latest_job else None
+        ),
+        "source_pacing": (
+            {**dict(pacing), "next_allowed_at_utc": iso(pacing["next_allowed_at"])}
+            if pacing else None
+        )
     }
     if output["source"]:
         b=output["source"]
@@ -161,6 +188,12 @@ def main():
               "| 自动访问许可:", binding.get("access_allowed"),
               "| 存储许可:", binding.get("storage_allowed"),
               "| 分析许可:", binding.get("analysis_allowed"))
+        print("监控周期:", (binding.get("interval_seconds") or 0)//3600, "小时",
+              "| 下次应采集 (UTC):",binding.get("next_due_at_utc"),
+              "| 最近成功 (UTC):", binding.get("last_success_at_utc"),
+              "| 最近尝试 (UTC):", binding.get("last_attempt_at_utc"))
+        if binding.get("blocked_reason"):
+            print("来源阻断原因:", binding["blocked_reason"])
         if binding:
             missing=[]
             if not binding.get("source_enabled"):
@@ -213,6 +246,35 @@ def main():
         if not result["recent_runs"]:
             print(" - 无执行记录（可能仍在等待来源授权或首次任务）")
         print("任务总数:",result["job_counts"])
+        latest_job=result["latest_job"]
+        print("最新任务:", (latest_job or {}).get("status", "无"),
+              "| 原定 UTC:", (latest_job or {}).get("scheduled_for_utc"),
+              "| 已尝试:", (latest_job or {}).get("attempt_count", 0),
+              "| 下次重试 UTC:", (latest_job or {}).get("next_retry_at_utc"))
+        pacing=result["source_pacing"]
+        if pacing:
+            print("数据源节流：下次允许访问 UTC:",pacing.get("next_allowed_at_utc"))
+        # A stored old value does not imply a recent successful scheduled run.
+        reasons=[]
+        if result["monitor_status"]!="active":
+            reasons.append("商品已暂停，调度器不会采集")
+        if binding.get("blocked_reason") or binding.get("status")=="blocked":
+            reasons.append("来源因访问限制或校验失败而被阻断，请核查上面错误码")
+        if not binding.get("source_enabled"):
+            reasons.append("数据源处于关闭状态，后续商品任务无法领取")
+        if not result["worker_heartbeat_recent"]:
+            reasons.append("Worker 近 10 分钟没有心跳，检查容器和日志")
+        if latest_job and latest_job["status"] in ("failed", "blocked", "retry_wait"):
+            reasons.append("最近任务状态为 "+latest_job["status"]+"，查看最近任务错误码")
+        if latest_job and latest_job["status"]=="queued":
+            reasons.append("存在排队任务，请检查冷却时间、来源启用状态和 Worker")
+        due=binding.get("next_due_at")
+        if due and due>datetime.now(tz=timezone.utc).timestamp()*1000:
+            reasons.append("下次计划时间尚未到达")
+        if (not reasons and binding.get("status")=="ready" and due and
+                due<datetime.now(tz=timezone.utc).timestamp()*1000):
+            reasons.append("计划已到期仍无正常执行，需检查 Worker 的调度循环日志")
+        print("停止更新的可能原因:", "；".join(reasons) if reasons else "请核对最新任务和执行错误码")
         print("注意：入库成功仅证明保存了该来源提供的展示值，不代表真实订单销量。")
     return 0 if result["sales_confirmed_in_db"] else 2
 
