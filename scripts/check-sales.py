@@ -78,7 +78,7 @@ def inspect(connection, product_id):
         "ORDER BY observed_at DESC LIMIT 1", (pid,)
     ).fetchone()
     recent_runs = connection.execute(
-        "SELECT r.started_at, r.finished_at,r.result,r.error_code, j.status AS job_status "
+        "SELECT r.started_at, r.finished_at,r.result,r.error_code, r.http_status, r.error_message_redacted, j.status AS job_status "
         "FROM collection_runs r JOIN collection_jobs j ON j.id=r.job_id "
         "JOIN product_source_bindings b ON b.id=j.binding_id "
         "WHERE b.product_id=? ORDER BY r.started_at DESC LIMIT 5", (pid,)
@@ -242,7 +242,11 @@ def main():
         print("最近任务:")
         for run in result["recent_runs"][:5]:
             print(" -",run["started_at_utc"],"result=",run["result"],
-                  "job=",run["job_status"],"error=",run["error_code"])
+                  "job=",run["job_status"],"error=",run["error_code"],"http=",run["http_status"])
+            # Only print new allowlisted numeric/error metadata; never old arbitrary error content.
+            detail=run["error_message_redacted"] or ""
+            if re.fullmatch(r"http=(?:none|[0-9]{3});dom=(?:loading|interactive|complete|unknown);bodyChars=[0-9]+;fields=[0-9]+;blockedSubresources=[0-9]+",detail):
+                print("   页面诊断:",detail)
         if not result["recent_runs"]:
             print(" - 无执行记录（可能仍在等待来源授权或首次任务）")
         print("任务总数:",result["job_counts"])
