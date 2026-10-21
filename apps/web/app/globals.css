@@ -35,3 +35,5 @@
 .product-card-footer a{font-size:12px;padding:5px}
 @media(max-width:1200px){.product-card-grid{grid-template-columns:1fr}}
 @media(max-width:650px){.product-card{padding:13px}.product-card-kpis{padding:10px;gap:12px}.product-card-status{max-width:115px}.product-card-kpis strong{font-size:17px}.product-card-kpis .product-card-small-number{font-size:12px}}
+
+.product-collection-error{border:1px solid #f1dfd4;background:#fff8f2;color:#915136;border-radius:9px;padding:9px 12px;font-size:12px;line-height:1.5}

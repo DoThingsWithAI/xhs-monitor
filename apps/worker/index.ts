@@ -37,8 +37,8 @@ function fail(job:JobRow,error:unknown){
  const blocked=['ACCESS_BLOCKED','VERIFICATION_REQUIRED','HOST_NOT_ALLOWED'].includes(e.code);
  const retry=!blocked&&e.transient&&job.attempt_count<3;
  d.transaction(()=>{
-  d.prepare('UPDATE collection_runs SET finished_at=?,result=?,error_code=?,http_status=? WHERE job_id=? AND attempt_no=?')
-   .run(ts,blocked?'blocked':'failed',e.code,e.status,job.id,job.attempt_count);
+  d.prepare('UPDATE collection_runs SET finished_at=?,result=?,error_code=?,http_status=?,error_message_redacted=? WHERE job_id=? AND attempt_no=?')
+   .run(ts,blocked?'blocked':'failed',e.code,e.status,e.diagnostic,job.id,job.attempt_count);
   d.prepare('UPDATE collection_jobs SET status=?,next_retry_at=?,lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?')
    .run(blocked?'blocked':retry?'retry_wait':'failed',retry?ts+Math.min(300000,2**job.attempt_count*30000):null,ts,job.id);
   d.prepare('UPDATE product_source_bindings SET consecutive_failures=consecutive_failures+1,updated_at=? WHERE id=?')
@@ -47,7 +47,7 @@ function fail(job:JobRow,error:unknown){
   if(blocked)suspendSourceAfterRestriction(d,job.source_id,e.code,ts);
   if(blocked||!retry)appendAlert(job.product_id,job.source_id,e.code,'Automated collection stopped or failed',blocked?'critical':'warning');
  })();
- console.error(JSON.stringify({event:'job_failed',jobId:job.id,code:e.code,blocked,retry}));
+ console.error(JSON.stringify({event:'job_failed',jobId:job.id,code:e.code,blocked,retry,diagnostic:e.diagnostic}));
  if(blocked)console.error(JSON.stringify({event:'source_suspended',sourceId:job.source_id,code:e.code}));
 }
 async function processOne(job:JobRow){

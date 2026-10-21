@@ -2,6 +2,7 @@ import {chromium} from 'playwright';
 import {XHS_GOODS_SELECTORS} from '../packages/core/source-selectors';
 import {parseSales,parsePrice} from '../packages/core/metrics';
 import {parseShopRating,parseShopStats} from '../packages/core/shop-metrics';
+import {inspectProductPage,waitForProductFields} from '../packages/collectors/page-readiness';
 async function main(){
  const browser=await chromium.launch({headless:true,timeout:30000});
  try{
@@ -27,6 +28,16 @@ async function main(){
      !title?.includes('快采采') || shop!=='辰星提效社的店')
     throw new Error('Goods DOM field smoke check failed');
   console.log('Goods DOM smoke check: product sold=431 price=1990 cents; seller rating=4.32 sold=426 followers=1261.');
+  // Synthetic delayed client-side rendering regression check (no remote request).
+  await page.setContent('<main id="app"></main>');
+  await page.evaluate(()=>setTimeout(()=>{
+   const app=document.getElementById('app');
+   if(app)app.innerHTML='<h1 class="goods-name">Late rendered product</h1><span class="spu-text">已售7</span>';
+  },200));
+  await waitForProductFields(page,XHS_GOODS_SELECTORS,3000);
+  const probe=await inspectProductPage(page,XHS_GOODS_SELECTORS);
+  if(probe.productFields!==1 || probe.challenge)throw new Error('Delayed product hydration was not detected');
+  console.log('Delayed client-side product rendering smoke check: OK');
  }finally{await browser.close();}
 }
 main().catch(e=>{console.error('Chromium smoke check FAILED:',e instanceof Error?e.message:String(e));process.exitCode=1;});

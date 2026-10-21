@@ -4,7 +4,7 @@ import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
 import {sourceBlockingReason} from '@/packages/core/source-readiness';
 import {validateSourceForm} from '@/packages/core/source-form-validation';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;trend_points:SalesTrendPoint[];shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;trend_points:SalesTrendPoint[];shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
@@ -20,8 +20,8 @@ function statusName(p:Product,sourceIssue:string|null){
  if(p.latest_job_status==='queued' && !p.last_success_at)return '首次采集排队中';
  if(p.latest_job_status==='running' && !p.last_success_at)return '首次采集中';
  if(p.latest_job_status==='retry_wait')return '采集失败，等待重试';
- if(p.latest_job_status==='failed' && !p.last_success_at)return '首次采集失败';
- if(p.latest_job_status==='partial' && !p.last_success_at)return '首次采集部分成功';
+ if(p.latest_job_status==='failed')return p.last_success_at?'最近采集失败（保留历史）':'首次采集失败';
+ if(p.latest_job_status==='partial')return p.last_success_at?'最近采集不完整':'首次采集部分成功';
  return '监控已排期';
 }
 async function api<T>(path:string,options?:RequestInit):Promise<T>{
@@ -131,7 +131,7 @@ export default function Dashboard({username}:{username:string}){
            <strong title={p.title||p.canonical_url}>{p.title||'待采集商品名称'}</strong>
            <span>{p.shop_name||p.category||'店铺信息待采集'}</span>
           </div>
-          <span className={'tag product-card-status '+(p.binding_status==='ready'?'tag-ok':'')}>{statusName(p,sourceIssue)}</span>
+          <span className={'tag product-card-status '+(p.binding_status==='ready'&&p.latest_job_status!=='failed'?'tag-ok':'')}>{statusName(p,sourceIssue)}</span>
          </div>
          <div className="product-card-kpis">
           <div><small>最近有效商品已售</small><strong>{latest?(latest.sales_raw_text||latest.sales.toLocaleString('zh-CN')):'—'}</strong></div>
@@ -139,6 +139,8 @@ export default function Dashboard({username}:{username:string}){
           <div><small>卖家口碑</small><strong>{p.shop_rating_raw_text??'—'}</strong></div>
           <div><small>店铺已售 / 粉丝</small><strong className="product-card-small-number">{p.shop_sales_raw_text??'—'} / {p.shop_followers_raw_text??'—'}</strong></div>
          </div>
+         {p.latest_job_status==='failed'&&p.latest_error_code&&
+          <div className="product-collection-error" role="status">最近一次采集失败：{p.latest_error_code}。折线图仍显示上次成功保存的数据。</div>}
          <SalesSparkline points={trend}/>
          <div className="product-card-footer">
           <small>最近有效销量：{latest?date(latest.t):'尚无记录'}</small>
