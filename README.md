@@ -107,6 +107,20 @@ XHS_SOURCE_MIN_GAP_SECONDS=120
 - 商品卡片同时包含名称、价格、店铺口碑、店铺销量、粉丝数和监控状态。详细观察表继续保留为辅助入口。
 - 后台 `GET /api/products` 返回有界的 `trend_points` 字段；只有真实数据进入 SQLite 后才会有图，不会绕过来源授权或改变采集周期。
 
+## 为什么只在某一天采集一次，后续没有销量记录？
+
+正常情况下每个已授权商品默认每 24 小时排期一次。看板折线图最后一个点显示**最近有效销量入库时间**，并不意味着之后没有执行任务：可能来源遭遇 403/429/验证而被整体暂停、近期任务失败/重试、缺少销量字段变成 partial，或 Worker 离线。
+
+最新版在 VPS 上运行下列**只读诊断命令**，直接查看真实问题：
+
+```bash
+cd /opt/xhs-monitor
+XHS_DATA_DIR=/var/lib/xhs-monitor python3 scripts/check-sales.py 6a290d7c3222c60001e051bf
+docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml logs --since=72h --tail=200 worker
+```
+
+输出会包含下次采集（UTC）、最新任务状态/重试、来源启用和阻断原因、SQLite 节流时间及 Worker 最近心跳。若来源被限制，不应靠取消阻断或高频重试恢复；先核实权限和故障根因。要使用新增诊断功能，先用 `bash scripts/deploy.sh update` 更新 VPS 文件。
+
 ## 已实现功能
 
 - 单管理员：交互式创建管理员账号、加盐 scrypt 密码校验和带签名的 HttpOnly 会话

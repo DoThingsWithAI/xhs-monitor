@@ -1,7 +1,7 @@
 name: Build and test MVP
 on:
   push:
-    paths: ['apps/**','packages/**','scripts/admin-init.ts','tests/**','package.json','tsconfig.json','next-env.d.ts','deploy/**','.github/workflows/ci.yml']
+    paths: ['apps/**','packages/**','scripts/admin-init.ts','scripts/check-sales.py','tests/**','package.json','tsconfig.json','next-env.d.ts','deploy/**','.github/workflows/ci.yml']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
+      - run: python3 -m py_compile scripts/check-sales.py
       - run: npm test
       - run: npm run db:init
       - run: npm run typecheck
