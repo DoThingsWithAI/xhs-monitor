@@ -28,6 +28,8 @@ jobs:
         run: docker build -f deploy/Dockerfile.web -t xhs-monitor-web:test .
       - name: Docker image build smoke (worker)
         run: docker build -f deploy/Dockerfile.worker -t xhs-monitor-worker:test .
+      - name: Chromium DOM hydration smoke (worker image)
+        run: docker run --rm --entrypoint npm xhs-monitor-worker:test run worker:smoke
       - name: Validate Compose config
         run: |
           cp .env.example .env

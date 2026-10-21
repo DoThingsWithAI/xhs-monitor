@@ -121,6 +121,21 @@ docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml logs --sinc
 
 输出会包含下次采集（UTC）、最新任务状态/重试、来源启用和阻断原因、SQLite 节流时间及 Worker 最近心跳。若来源被限制，不应靠取消阻断或高频重试恢复；先核实权限和故障根因。要使用新增诊断功能，先用 `bash scripts/deploy.sh update` 更新 VPS 文件。
 
+## 10 月 20/21 日 PARSER_NO_FIELDS 采集失败（v1.1.11）
+
+用户的真实 VPS 任务记录证明：10 月 19 日首采成功，10 月 20/21 日都按计划执行，但商品标题、销量、价格和店铺字段全都读取不到，报 `PARSER_NO_FIELDS`；尚未证明是页面结构改动还是访问限制。
+
+采集器现会等待允许访问页面的商品字段最多 15 秒，避免在 `domcontentloaded` 的空白壳页面上立即判断失败；遇到明显验证/限制要求仍会暂停来源。页面诊断只记录 HTTP 状态、DOM 状态、内容字符数、字段命中数和被白名单阻止的子资源数，不保存页面全文。看板即使存在旧销量，也会提示最近失败与错误码。
+
+部署后等待下一次合法计划采集，然后用只读命令查看诊断元数据：
+
+```bash
+cd /opt/xhs-monitor
+XHS_DATA_DIR=/var/lib/xhs-monitor python3 scripts/check-sales.py 6a290d7c3222c60001e051bf
+```
+
+如果仍然 `PARSER_NO_FIELDS`，请根据 `http`、`dom`、`bodyChars`、`fields`、`blockedSubresources` 判断后续应排查页面结构、客户端资源或访问权限，不要循环强制访问受限来源。
+
 ## 已实现功能
 
 - 单管理员：交互式创建管理员账号、加盐 scrypt 密码校验和带签名的 HttpOnly 会话
