@@ -1,4 +1,4 @@
-# Ubuntu VPS 部署和维护指南
+# VPS 部署和维护指南
 
 > 项目：`DoThingsWithAI/xhs-monitor` · 版本：部署脚本 v1.1 · 2026-10-19
 >
@@ -6,7 +6,7 @@
 
 ## 1. 适用环境
 
-- Ubuntu 22.04、24.04 或 26.04 LTS；amd64/x86_64 或 arm64/aarch64。
+- Ubuntu 22.04、24.04 或 26.04 LTS，以及已安装 Docker、Compose 和 Buildx 的 OpenCloudOS 9.4；amd64/x86_64 或 arm64/aarch64。
 - 用户提供内核版本 `6.8.0-146-generic` / `x86_64`。**内核号不能判定 Ubuntu 发行版版本**，请先执行 `cat /etc/os-release`。
 - VPS 建议预留至少 2 vCPU / 4 GiB RAM 供 Web + Playwright Chromium 使用；若已有其他服务，需另外预留资源。
 - SSH 登录后以 `root` 或 `sudo` 运行部署脚本。
@@ -127,6 +127,10 @@ bash scripts/deploy.sh unschedule
 
 **与“商品销量采集定时任务”的区别**：每天 08:00 更新的是应用本身（GitHub 代码、Docker 镜像）；商品销量抓取依旧由常驻 Playwright Worker 按每个商品的 `interval_seconds` 独立执行，二者互不等同。
 
+
+### OpenCloudOS 9.4
+
+使用系统中现有的 Docker、Compose 和 Buildx。部署器使用独立的 `xhs-monitor-bounded` 构建器串行构建镜像，配额为 1 CPU、1 GiB 内存和额外 1 GiB swap。Docker 需支持 swap 限制，构建前 Docker 数据目录所在磁盘需至少剩 5 GiB。生产 Web、Worker、Caddy 的内存上限分别为 512、768、128 MiB。定时器与 Ubuntu 使用同一套模板。
 
 ## 5. 后续升级、查看状态和备份
 

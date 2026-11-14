@@ -4,7 +4,7 @@ import {parseSales,parsePrice} from '../packages/core/metrics';
 import {parseShopRating,parseShopStats} from '../packages/core/shop-metrics';
 import {inspectProductPage,waitForProductFields} from '../packages/collectors/page-readiness';
 async function main(){
- const browser=await chromium.launch({headless:true,timeout:30000});
+ const browser=await chromium.launch({headless:true,chromiumSandbox:true,timeout:30000});
  try{
   const page=await browser.newPage();
   await page.goto('about:blank');

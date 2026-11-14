@@ -22,7 +22,7 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
    throw new CollectError('SOURCE_SELECTOR_NOT_CONFIGURED');
  try{await assertPublicWebUrl(url,hosts);}catch{throw new CollectError('HOST_NOT_ALLOWED');}
  if(!browser||!browser.isConnected()){
-   browser=await chromium.launch({headless:true,timeout:30000});
+   browser=await chromium.launch({headless:true,chromiumSandbox:true,timeout:30000});
  }
  const context=await browser.newContext({acceptDownloads:false,javaScriptEnabled:true,serviceWorkers:'block'});
  try{

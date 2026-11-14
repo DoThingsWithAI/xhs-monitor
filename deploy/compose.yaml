@@ -19,7 +19,7 @@ services:
       timeout: 8s
       retries: 5
       start_period: 60s
-    mem_limit: 768m
+    mem_limit: 512m
     networks: [internal]
   worker:
     build:
@@ -36,13 +36,14 @@ services:
     init: true
     user: "10001:10001"
     shm_size: "512mb"
-    mem_limit: 1536m
+    mem_limit: 768m
     security_opt:
       - "no-new-privileges:true"
       - "seccomp=./seccomp_profile.json"
     networks: [internal]
   caddy:
     image: caddy:2-alpine
+    mem_limit: 128m
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}

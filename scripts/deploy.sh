@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# XHS Monitor - Ubuntu single VPS deployment entrypoint
+# XHS Monitor - single VPS deployment entrypoint
 # Usage: sudo bash scripts/deploy.sh [doctor|prepare|install-docker|deploy|update|backup|status]
 # Default command: deploy
 set -Eeuo pipefail
@@ -21,7 +21,7 @@ die()  { printf '[xhs-monitor] ERROR: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'HELP'
 Usage: sudo bash scripts/deploy.sh <command>
-  doctor          Non-destructive Ubuntu/Docker/Compose and repo check
+  doctor          Non-destructive host, Docker/Compose and repo check
   prepare         Initialize .env (never overwrite) and persistent data directory
   install-docker  Explicit opt-in install from Docker's official Ubuntu apt repository
   deploy          Deploy / redeploy this project's web, worker and caddy containers
@@ -42,16 +42,15 @@ check_os() {
   [[ -r /etc/os-release ]] || die "Cannot detect operating system."
   # shellcheck disable=SC1091
   . /etc/os-release
-  [[ "${ID:-}" == ubuntu ]] || die "Only Ubuntu is supported (detected: ${ID:-unknown})."
-  case "${VERSION_ID:-}" in
-    22.04|24.04|26.04) ;;
-    *) die "Unsupported Ubuntu ${VERSION_ID:-unknown}; supported: 22.04, 24.04, 26.04." ;;
+  case "${ID:-}:${VERSION_ID:-}" in
+    ubuntu:22.04|ubuntu:24.04|ubuntu:26.04|opencloudos:9.4) ;;
+    *) die "Unsupported host: ${ID:-unknown} ${VERSION_ID:-unknown}." ;;
   esac
   case "$(uname -m)" in
     x86_64|aarch64) ;;
     *) die "Unsupported architecture: $(uname -m)." ;;
   esac
-  log "Detected Ubuntu ${VERSION_ID} / $(uname -m) / $(uname -r)"
+  log "Detected ${ID} ${VERSION_ID} / $(uname -m) / $(uname -r)"
 }
 has_docker() { command -v docker >/dev/null 2>&1; }
 has_compose() { has_docker && docker compose version >/dev/null 2>&1; }
@@ -129,6 +128,7 @@ doctor() {
 install_docker() {
   require_root
   check_os
+  [[ "${ID}" == ubuntu ]] || die "Docker installation is only supported on Ubuntu. Use the existing Docker on this host."
   if has_docker; then
     if has_compose; then log "Docker and Compose already installed; nothing changed."; return; fi
     die "Docker exists but Compose is missing; refusing to replace a running Docker installation. Install docker-compose-plugin for your existing engine manually."
@@ -208,6 +208,26 @@ PY
   log "Verified online backup: ${dest}"
   warn "Backups remain on this VPS. Copy an encrypted backup off-site; no remote backups are configured."
 }
+build_images() {
+  if [[ "${ID}" != opencloudos ]]; then
+    compose build web worker
+    return
+  fi
+
+  local builder=xhs-monitor-bounded service available_kib
+  available_kib="$(df -Pk "$(docker info --format '{{.DockerRootDir}}')" | awk 'NR == 2 {print $4}')"
+  [[ "${available_kib}" -ge 5242880 ]] || die "At least 5 GiB of available Docker disk space is required before building."
+  [[ "$(docker info --format '{{.SwapLimit}}')" == true ]] || die "Docker cannot enforce the build swap limit."
+  if ! docker buildx inspect "${builder}" >/dev/null 2>&1; then
+    docker buildx create --name "${builder}" --driver docker-container \
+      --driver-opt cpu-period=100000,cpu-quota=100000,memory=1g,memory-swap=2g >/dev/null
+  fi
+  for service in web worker; do
+    docker buildx build --builder "${builder}" --load \
+      --file "${REPO_DIR}/deploy/Dockerfile.${service}" \
+      --tag "${PROJECT_NAME}-${service}:latest" "${REPO_DIR}"
+  done
+}
 deploy() {
   require_root
   check_os
@@ -218,7 +238,7 @@ deploy() {
   prepare_data_dir
   check_services
   log "Preflight: build web+worker images BEFORE replacing running containers..."
-  compose build web worker
+  build_images
   log "Preflight: run tests against a temporary SQLite DB (never production)..."
   compose run --rm --no-deps -e DB_PATH=/tmp/xhs-monitor-preflight.sqlite worker npm test
   log "Preflight: verify non-root Chromium with a local test page..."

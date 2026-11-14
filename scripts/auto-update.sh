@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Ubuntu host job: daily fast-forward + validated Compose deployment.
+# VPS host job: daily fast-forward + validated Compose deployment.
 # Called by xhs-monitor-auto-update.timer, or manually by deploy.sh update.
 set -Eeuo pipefail
 umask 077
