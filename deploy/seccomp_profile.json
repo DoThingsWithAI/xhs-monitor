@@ -51,6 +51,16 @@
 	],
 	"syscalls": [
 		{
+			"names": ["openat2", "rseq", "faccessat2", "close_range", "epoll_pwait2", "futex_waitv"],
+			"action": "SCMP_ACT_ALLOW"
+		},
+		{
+			"names": ["clone3"],
+			"action": "SCMP_ACT_ERRNO",
+			"errnoRet": 38,
+			"comment": "Match Docker's ENOSYS fallback to clone for glibc threads."
+		},
+		{
 			"comment": "Allow create user namespaces",
 			"names": [
 				"clone",
