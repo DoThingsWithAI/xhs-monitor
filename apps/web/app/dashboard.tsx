@@ -4,7 +4,8 @@ import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
 import {sourceBlockingReason} from '@/packages/core/source-readiness';
 import {validateSourceForm} from '@/packages/core/source-form-validation';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;trend_points:SalesTrendPoint[];shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
+type HotProductScore={rate:number|null;todaySales:number|null;observedAt:number|null;baselineAt:number|null};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
@@ -125,6 +126,7 @@ export default function Dashboard({username}:{username:string}){
        {products.map(p=>{
         const trend=p.trend_points||[];
         const latest=trend.length?trend[trend.length-1]:null;
+        const hot=p.hot_score;
         return <article className="product-card" key={p.id}>
          <div className="product-card-top">
           <div className="product-card-title">
@@ -135,6 +137,8 @@ export default function Dashboard({username}:{username:string}){
          </div>
          <div className="product-card-kpis">
           <div><small>最近有效商品已售</small><strong>{latest?(latest.sales_raw_text||latest.sales.toLocaleString('zh-CN')):'—'}</strong></div>
+          <div><small>爆品值（今日新增 / 累计已售）</small><strong title={hot?.rate!==null&&hot?.rate!==undefined?'对比 '+date(hot.baselineAt)+' 与 '+date(hot.observedAt)+' 两次采集的展示销量':'需今日和昨日均有精确销量记录'}>{typeof hot?.rate==='number'?(hot.rate*100).toFixed(2)+'%':'—'}</strong></div>
+          <div><small>今日新增销量（快照估算）</small><strong>{typeof hot?.todaySales==='number'?hot.todaySales.toLocaleString('zh-CN'):'—'}</strong></div>
           <div><small>当前展示价格</small><strong>{yuan(p.price_minor)}</strong></div>
           <div><small>卖家口碑</small><strong>{p.shop_rating_raw_text??'—'}</strong></div>
           <div><small>店铺已售 / 粉丝</small><strong className="product-card-small-number">{p.shop_sales_raw_text??'—'} / {p.shop_followers_raw_text??'—'}</strong></div>
@@ -153,7 +157,7 @@ export default function Dashboard({username}:{username:string}){
         </article>;
        })}
       </div>}
-     <p className="footnote">折线图显示的是来源页面的累计展示销量，不代表真实成交订单或周期新增销量；包含“万+”等近似展示时请查看精度提示。暂无折线图通常是因为还没有有效采集，不能用样例数据代替。</p>
+     <p className="footnote">爆品值 =（今日累计已售－昨日累计已售）÷今日累计已售，按北京时间划分日期，以两天各自最新有效采集为准。它是两次快照间的增量占比，不等同于真实当天成交；缺少任一天的记录、近似/下界销量或异常回退时显示“—”，不会记为 0。折线图展示来源累计销量，暂无有效采集时不使用样例数据。</p>
     </section>}
    {tab==='products'&&detailId&&<section className="panel"><div className="panel-head"><h2>历史观察</h2><button className="ghost" onClick={()=>setDetailId(null)}>关闭</button></div><Trend items={history}/>
     <div className="table-scroll"><table><thead><tr><th>采集时间</th><th>商品已售</th><th>销量精度</th><th>价格</th><th>店铺名称</th><th>口碑</th><th>店铺已售</th><th>粉丝数</th><th>数据质量</th></tr></thead><tbody>{history.map(o=><tr key={o.observed_at}><td>{date(o.observed_at)}</td><td>{o.sales_raw_text||'未知'}</td><td>{o.sales_precision}</td><td>{yuan(o.price_minor)}</td><td>{o.shop_observed??'—'}</td><td>{o.shop_rating_raw_text??'—'}</td><td>{o.shop_sales_raw_text??'—'}<small>{o.shop_sales_precision}</small></td><td>{o.shop_followers_raw_text??'—'}<small>{o.shop_followers_precision}</small></td><td>{o.quality_status}</td></tr>)}</tbody></table></div>
