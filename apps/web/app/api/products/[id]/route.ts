@@ -15,6 +15,15 @@ export async function PATCH(req:NextRequest,ctx:{params:Promise<{id:string}>}){
  if(!sameOrigin(req))return NextResponse.json({error:'BAD_ORIGIN'},{status:403});
  const {id}=await ctx.params;
  let body:any;try{body=await req.json();}catch{return NextResponse.json({error:'INVALID_JSON'},{status:400});}
+ if(Object.prototype.hasOwnProperty.call(body,'hot_threshold')){
+  const threshold=body.hot_threshold;
+  if(!Number.isSafeInteger(threshold)||threshold<0||threshold>1000000)
+   return NextResponse.json({error:'INVALID_HOT_THRESHOLD'},{status:400});
+  const changed=db().prepare("UPDATE products SET hot_threshold=?,updated_at=? WHERE id=? AND monitor_status<>'deleted'")
+   .run(threshold,Date.now(),id);
+  if(!changed.changes)return NextResponse.json({error:'NOT_FOUND'},{status:404});
+  return NextResponse.json({data:{ok:true,hot_threshold:threshold}});
+ }
  const status=body.monitor_status;
  if(!['active','paused','deleted'].includes(status))return NextResponse.json({error:'INVALID_STATUS'},{status:400});
  const result=db().prepare('UPDATE products SET monitor_status=?,updated_at=?,deleted_at=? WHERE id=?')

@@ -45,7 +45,7 @@ export function getProductSalesTrends(
 
 
 /** 
- * 爆品值 = (今日累计已售 - 昨日累计已售) / 今日累计已售。
+ * 爆品值 = (今日新增销量 - 商品爆品预值) / 今日累计已售。
  * China Standard Time (UTC+8) defines "today" for XHS products.
  * This is an estimate between snapshots, NOT confirmed calendar-day orders.
  * Missing, rounded, or lower-bound snapshots must never be treated as zero.
@@ -69,6 +69,7 @@ export function getHotProductScores(
  const dayMs=86400000,chinaOffsetMs=8*3600000;
  const todayStart=Math.floor((now+chinaOffsetMs)/dayMs)*dayMs-chinaOffsetMs;
  const yesterdayStart=todayStart-dayMs;
+ const thresholdQuery=d.prepare('SELECT hot_threshold FROM products WHERE id=?');
  const latestInDay=d.prepare(
   "SELECT observed_at,sales_value,sales_precision,price_minor,price_kind FROM product_observations "+
   "WHERE product_id=? AND source_id=? AND observed_at>=? AND observed_at<? "+
@@ -84,7 +85,8 @@ export function getHotProductScores(
    today.sales_value>0&&yesterday.sales_value>=0&&
    today.sales_value>=yesterday.sales_value;
   const todaySales=valid?today!.sales_value-yesterday!.sales_value:null;
-  const rate=valid?todaySales!/today!.sales_value:null;
+  const threshold=(thresholdQuery.get(id) as {hot_threshold:number}|undefined)?.hot_threshold??2;
+  const rate=valid?(todaySales!-threshold)/today!.sales_value:null;
   // No true paid-order average ticket is collected. Use the exact displayed
   // product price in the SAME today's sales snapshot as a documented proxy.
   // Never calculate from a starting price, missing price, or stale snapshot.
@@ -94,7 +96,7 @@ export function getHotProductScores(
   result[id]={
    rate,
    todaySales,
-   productValueCents:valueCents!==null&&Number.isSafeInteger(valueCents)&&valueCents>=0?valueCents:null,
+   productValueCents:valueCents!==null&&Number.isSafeInteger(valueCents)?valueCents:null,
    observedAt:today?.observed_at??null,
    baselineAt:yesterday?.observed_at??null
   };

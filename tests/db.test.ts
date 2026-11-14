@@ -26,6 +26,7 @@ test('authorization defaults to disabled; scheduling and claiming are durable',a
  assert.equal(createProduct('https://m.xiaohongshu.com/goods-detail/6a290d7c3222c60001e051bf?share_id=second').created,false);
  assert.equal((d.prepare('SELECT count(*) AS n FROM products').get() as {n:number}).n,1);
  assert.equal(result.created,true);
+ assert.equal((d.prepare('SELECT hot_threshold FROM products WHERE id=?').get(result.id) as {hot_threshold:number}).hot_threshold,2);
  assert.equal(result.monitoring,'awaiting_source_authorization');
  assert.equal(scheduleDue(),0);
  assert.equal((d.prepare('SELECT count(*) AS n FROM collection_jobs').get() as {n:number}).n,0);

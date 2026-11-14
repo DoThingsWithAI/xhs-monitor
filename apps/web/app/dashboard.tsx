@@ -5,14 +5,14 @@ import {sourceBlockingReason} from '@/packages/core/source-readiness';
 import {validateSourceForm} from '@/packages/core/source-form-validation';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
 type HotProductScore={rate:number|null;todaySales:number|null;productValueCents:number|null;observedAt:number|null;baselineAt:number|null};
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
 type Alert={id:string;type:string;severity:string;occurrences:number;last_seen_at:number;status:string;details_json:string};
 type Observation={observed_at:number;sales_raw_text:string|null;sales_value:number|null;sales_precision:string;price_minor:number|null;quality_status:string;shop_observed:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_value:number|null;shop_sales_precision:string;shop_followers_raw_text:string|null;shop_followers_value:number|null;shop_followers_precision:string};
 const date=(value:number|null|undefined)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
-const yuan=(c:number|null|undefined)=>c===null||c===undefined?'—':'¥'+(c/100).toFixed(2);
+const yuan=(c:number|null|undefined)=>c===null||c===undefined?'—':(c<0?'-':'')+'¥'+(Math.abs(c)/100).toFixed(2);
 function statusName(p:Product,sourceIssue:string|null){
  if(p.monitor_status==='paused')return '已暂停';
  if(p.binding_status==='awaiting_authorization')return sourceIssue??'来源配置已满足，等待任务绑定同步';
@@ -44,6 +44,9 @@ export default function Dashboard({username}:{username:string}){
  const [runs,setRuns]=useState<Run[]>([]),[alerts,setAlerts]=useState<Alert[]>([]),[sources,setSources]=useState<Source[]>([]);
  const [urls,setUrls]=useState(''),[category,setCategory]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const [sourceSaveError,setSourceSaveError]=useState('');
+ const [editingThresholdId,setEditingThresholdId]=useState<string|null>(null);
+ const [thresholdDraft,setThresholdDraft]=useState('2');
+ const [savingThreshold,setSavingThreshold]=useState(false);
  const [detailId,setDetailId]=useState<string|null>(null),[history,setHistory]=useState<Observation[]>([]);
  const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:XHS_GOODS_SELECTORS.title as string,salesSelector:XHS_GOODS_SELECTORS.sales as string,priceSelector:XHS_GOODS_SELECTORS.price as string,shopSelector:XHS_GOODS_SELECTORS.shop as string,shopRatingSelector:XHS_GOODS_SELECTORS.shopRating as string,shopStatsSelector:XHS_GOODS_SELECTORS.shopStats as string});
  const refresh=useCallback(async()=>{
@@ -86,6 +89,18 @@ export default function Dashboard({username}:{username:string}){
  async function updateProduct(id:string,monitor_status:string){
   try{await api('/api/products/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({monitor_status})});await refresh();}
   catch(e){setMessage(e instanceof Error?e.message:'修改失败');}
+ }
+ async function saveHotThreshold(id:string){
+  const v=thresholdDraft.trim();
+  if(!/^\d+$/.test(v)||!Number.isSafeInteger(Number(v))||Number(v)>1000000){
+   setMessage('爆品预值只能填写 0 到 1000000 的整数');return;
+  }
+  setSavingThreshold(true);setMessage('');
+  try{
+   await api('/api/products/'+encodeURIComponent(id),{method:'PATCH',body:JSON.stringify({hot_threshold:Number(v)})});
+   setEditingThresholdId(null);await refresh();
+  }catch(e){setMessage(e instanceof Error?e.message:'爆品预值保存失败');}
+  finally{setSavingThreshold(false);}
  }
  async function showDetail(id:string){
   try{const data=await api<{observations:Observation[]}>('/api/products/'+id);setDetailId(id);setHistory(data.observations);}
@@ -137,8 +152,18 @@ export default function Dashboard({username}:{username:string}){
          </div>
          <div className="product-card-kpis">
           <div><small>最近有效商品已售</small><strong>{latest?(latest.sales_raw_text||latest.sales.toLocaleString('zh-CN')):'—'}</strong></div>
-          <div><small>爆品值（今日新增 / 累计已售）</small><strong title={hot?.rate!==null&&hot?.rate!==undefined?'对比 '+date(hot.baselineAt)+' 与 '+date(hot.observedAt)+' 两次采集的展示销量':'需今日和昨日均有精确销量记录'}>{typeof hot?.rate==='number'?(hot.rate*100).toFixed(2)+'%':'—'}</strong></div>
+          <div><small>爆品值（今日新增－预值）/累计已售</small><strong title={hot?.rate!==null&&hot?.rate!==undefined?'对比 '+date(hot.baselineAt)+' 与 '+date(hot.observedAt)+' 两次采集的展示销量':'需今日和昨日均有精确销量记录'}>{typeof hot?.rate==='number'?(hot.rate*100).toFixed(2)+'%':'—'}</strong></div>
           <div><small>今日新增销量（快照估算）</small><strong>{typeof hot?.todaySales==='number'?hot.todaySales.toLocaleString('zh-CN'):'—'}</strong></div>
+           <div className="hot-threshold-control">
+            <small>爆品预值（阈值，默认 2）</small>
+            {editingThresholdId===p.id?
+             <div className="hot-threshold-editor">
+              <input aria-label="爆品预值" type="number" min="0" max="1000000" step="1" value={thresholdDraft} onChange={e=>setThresholdDraft(e.target.value)}/>
+              <button disabled={savingThreshold} onClick={()=>void saveHotThreshold(p.id)}>保存</button>
+              <button className="ghost" disabled={savingThreshold} onClick={()=>setEditingThresholdId(null)}>取消</button>
+             </div>:
+             <div className="hot-threshold-display"><strong>{p.hot_threshold??2}</strong><button className="text-button" onClick={()=>{setEditingThresholdId(p.id);setThresholdDraft(String(p.hot_threshold??2));}}>调整</button></div>}
+           </div>
           <div><small>商品价值（估算）</small><strong title="商品价值 = 商品当日展示价（代替实际客单价）× 今日新增销量 × 爆品值。缺少精确价格或销量时不计算。">{yuan(hot?.productValueCents)}</strong></div>
           <div><small>当前展示价格</small><strong>{yuan(p.price_minor)}</strong></div>
           <div><small>卖家口碑</small><strong>{p.shop_rating_raw_text??'—'}</strong></div>
@@ -158,7 +183,7 @@ export default function Dashboard({username}:{username:string}){
         </article>;
        })}
       </div>}
-     <p className="footnote">爆品值 =（今日累计已售－昨日累计已售）÷今日累计已售，按北京时间划分日期。商品价值（估算）= 当天商品展示价 × 今日新增销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在当日有明确展示价格且今昨均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
+     <p className="footnote">爆品值 =（今日新增销量－爆品预值）÷当前累计已售，爆品预值按商品设置，默认 2，可修改。按北京时间划分日期；爆品值可能是负数。商品价值（估算）= 当天商品展示价 × 今日新增销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在当日有明确展示价格且今昨均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
     </section>}
    {tab==='products'&&detailId&&<section className="panel"><div className="panel-head"><h2>历史观察</h2><button className="ghost" onClick={()=>setDetailId(null)}>关闭</button></div><Trend items={history}/>
     <div className="table-scroll"><table><thead><tr><th>采集时间</th><th>商品已售</th><th>销量精度</th><th>价格</th><th>店铺名称</th><th>口碑</th><th>店铺已售</th><th>粉丝数</th><th>数据质量</th></tr></thead><tbody>{history.map(o=><tr key={o.observed_at}><td>{date(o.observed_at)}</td><td>{o.sales_raw_text||'未知'}</td><td>{o.sales_precision}</td><td>{yuan(o.price_minor)}</td><td>{o.shop_observed??'—'}</td><td>{o.shop_rating_raw_text??'—'}</td><td>{o.shop_sales_raw_text??'—'}<small>{o.shop_sales_precision}</small></td><td>{o.shop_followers_raw_text??'—'}<small>{o.shop_followers_precision}</small></td><td>{o.quality_status}</td></tr>)}</tbody></table></div>
