@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import Database from 'better-sqlite3';
 import {initSchema} from '../packages/db';
-import {getProductSalesTrends} from '../packages/db/product-trends';
+import {getProductSalesTrends,getHotProductScores} from '../packages/db/product-trends';
 
 test('product cards receive only 30 newest valid sales samples in chronological order',()=>{
  const d=new Database(':memory:');
@@ -49,5 +49,50 @@ test('zero sales is a valid point, missing and different scopes never become fab
   assert.deepEqual(points.map(p=>p.sales),[0,10000]);
   assert.deepEqual(points.map(p=>p.precision),['exact','lower_bound']);
   assert.equal(points[1].sales_raw_text,'已售1万+');
+ }finally{d.close();}
+});
+
+
+test('hot product score uses Shanghai calendar day and exact cumulative snapshots only',()=>{
+ const d=new Database(':memory:');
+ try{
+  initSchema(d);d.pragma('foreign_keys = OFF');
+  const insert=d.prepare(
+   "INSERT INTO product_observations "+
+   "(id,product_id,source_id,job_id,run_id,observed_at,sales_raw_text,sales_value,sales_precision,price_kind,quality_status) "+
+   "VALUES (?,?,?,?,?,?,?,?,?,'missing','success')"
+  );
+  const when=(v:string)=>Date.parse(v);
+  const put=(id:string,pid:string,ts:string,sales:number|null,precision:'exact'|'lower_bound'|'missing'='exact',source='xhs-browser')=>
+   insert.run(id,pid,source,'j'+id,'r'+id,when(ts),sales===null?null:'已售'+sales,sales,precision);
+  // Includes the precise day boundary, not the host server's timezone.
+  put('prev','good','2026-11-13T23:59:00+08:00',800);
+  put('curr','good','2026-11-14T00:01:00+08:00',1000);
+  // Missing later observations must not turn the baseline into zero.
+  put('missing','good','2026-11-14T12:00:00+08:00',null,'missing');
+  // A different data source must not affect the score.
+  put('other','good','2026-11-14T13:00:00+08:00',9000,'exact','other');
+  put('only','new','2026-11-14T12:00:00+08:00',150);
+  put('rounded-prev','rounded','2026-11-13T12:00:00+08:00',10000,'lower_bound');
+  put('rounded-today','rounded','2026-11-14T12:00:00+08:00',12000);
+  put('zero-prev','zero','2026-11-13T12:00:00+08:00',0);
+  put('zero-today','zero','2026-11-14T12:00:00+08:00',0);
+  put('same-prev','same','2026-11-13T12:00:00+08:00',120);
+  put('same-today','same','2026-11-14T12:00:00+08:00',120);
+  put('decrease-prev','decrease','2026-11-13T12:00:00+08:00',200);
+  put('decrease-today','decrease','2026-11-14T12:00:00+08:00',190);
+  const scores=getHotProductScores(d,['good','new','rounded','zero','same','decrease'],'xhs-browser',when('2026-11-14T18:00:00+08:00'));
+  assert.equal(scores.good.todaySales,200);
+  assert.equal(scores.good.rate,0.2);
+  assert.equal(scores.good.observedAt,when('2026-11-14T00:01:00+08:00'));
+  for(const id of ['new','rounded','zero','decrease']){
+   assert.equal(scores[id].todaySales,null,id);
+   assert.equal(scores[id].rate,null,id);
+  }
+  assert.equal(scores.same.todaySales,0);
+  assert.equal(scores.same.rate,0);
+  // Yesterday's sample is no longer valid when it becomes two days old.
+  const tomorrow=getHotProductScores(d,['good'],'xhs-browser',when('2026-11-15T12:00:00+08:00'));
+  assert.equal(tomorrow.good.rate,null);
  }finally{d.close();}
 });
