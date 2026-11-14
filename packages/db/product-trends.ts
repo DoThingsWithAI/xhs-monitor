@@ -96,7 +96,7 @@ export function getHotProductScores(
   result[id]={
    rate,
    todaySales,
-   productValueCents:valueCents!==null&&Number.isSafeInteger(valueCents)?valueCents:null,
+   productValueCents:valueCents!==null&&Number.isSafeInteger(valueCents)?(valueCents===0?0:valueCents):null,
    observedAt:today?.observed_at??null,
    baselineAt:yesterday?.observed_at??null
   };
