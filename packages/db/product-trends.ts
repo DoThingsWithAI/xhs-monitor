@@ -42,3 +42,52 @@ export function getProductSalesTrends(
  }
  return result;
 }
+
+
+/** 
+ * 爆品值 = (今日累计已售 - 昨日累计已售) / 今日累计已售。
+ * China Standard Time (UTC+8) defines "today" for XHS products.
+ * This is an estimate between snapshots, NOT confirmed calendar-day orders.
+ * Missing, rounded, or lower-bound snapshots must never be treated as zero.
+ */
+export type HotProductScore={
+  rate:number|null;
+  todaySales:number|null;
+  observedAt:number|null;
+  baselineAt:number|null;
+};
+
+export function getHotProductScores(
+ d:Database.Database,
+ productIds:readonly string[],
+ sourceId='xhs-browser',
+ now=Date.now()
+):Record<string,HotProductScore>{
+ const result:Record<string,HotProductScore>=Object.create(null);
+ const dayMs=86400000,chinaOffsetMs=8*3600000;
+ const todayStart=Math.floor((now+chinaOffsetMs)/dayMs)*dayMs-chinaOffsetMs;
+ const yesterdayStart=todayStart-dayMs;
+ const latestInDay=d.prepare(
+  "SELECT observed_at,sales_value,sales_precision FROM product_observations "+
+  "WHERE product_id=? AND source_id=? AND observed_at>=? AND observed_at<? "+
+  "AND sales_value IS NOT NULL ORDER BY observed_at DESC,id DESC LIMIT 1"
+ );
+ type Sample={observed_at:number;sales_value:number;sales_precision:string};
+ for(const id of productIds){
+  const today=latestInDay.get(id,sourceId,todayStart,todayStart+dayMs) as Sample|undefined;
+  const yesterday=latestInDay.get(id,sourceId,yesterdayStart,todayStart) as Sample|undefined;
+  const valid=!!today&&!!yesterday&&
+   today.sales_precision==='exact'&&yesterday.sales_precision==='exact'&&
+   Number.isSafeInteger(today.sales_value)&&Number.isSafeInteger(yesterday.sales_value)&&
+   today.sales_value>0&&yesterday.sales_value>=0&&
+   today.sales_value>=yesterday.sales_value;
+  const todaySales=valid?today!.sales_value-yesterday!.sales_value:null;
+  result[id]={
+   rate:valid?todaySales!/today!.sales_value:null,
+   todaySales,
+   observedAt:today?.observed_at??null,
+   baselineAt:yesterday?.observed_at??null
+  };
+ }
+ return result;
+}
