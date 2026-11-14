@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useState,useCallback} from 'react';
+import {useEffect,useState,useCallback,useRef} from 'react';
 import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
 import {sourceBlockingReason} from '@/packages/core/source-readiness';
 import {validateSourceForm} from '@/packages/core/source-form-validation';
@@ -48,6 +48,10 @@ export default function Dashboard({username}:{username:string}){
  const [thresholdDraft,setThresholdDraft]=useState('2');
  const [savingThreshold,setSavingThreshold]=useState(false);
  const [detailId,setDetailId]=useState<string|null>(null),[history,setHistory]=useState<Observation[]>([]);
+ const [detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState('');
+ const detailRequestId=useRef(0);
+ const detailDrawerRef=useRef<HTMLElement|null>(null),detailCloseRef=useRef<HTMLButtonElement|null>(null);
+ const detailTriggerRef=useRef<HTMLElement|null>(null);
  const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:XHS_GOODS_SELECTORS.title as string,salesSelector:XHS_GOODS_SELECTORS.sales as string,priceSelector:XHS_GOODS_SELECTORS.price as string,shopSelector:XHS_GOODS_SELECTORS.shop as string,shopRatingSelector:XHS_GOODS_SELECTORS.shopRating as string,shopStatsSelector:XHS_GOODS_SELECTORS.shopStats as string});
  const refresh=useCallback(async()=>{
   try{
@@ -102,20 +106,67 @@ export default function Dashboard({username}:{username:string}){
   }catch(e){setMessage(e instanceof Error?e.message:'爆品预值保存失败');}
   finally{setSavingThreshold(false);}
  }
- async function showDetail(id:string){
-  try{const data=await api<{observations:Observation[]}>('/api/products/'+id);setDetailId(id);setHistory(data.observations);}
-  catch(e){setMessage(e instanceof Error?e.message:'详情加载失败');}
+ function closeDetail(){
+  detailRequestId.current+=1;
+  setDetailId(null);
+  setDetailLoading(false);
+  setDetailError('');
  }
+ async function showDetail(id:string){
+  const requestId=++detailRequestId.current;
+  detailTriggerRef.current=document.activeElement instanceof HTMLElement?document.activeElement:null;
+  setDetailId(id);setHistory([]);setDetailError('');setDetailLoading(true);
+  try{
+   const data=await api<{observations:Observation[]}>('/api/products/'+encodeURIComponent(id));
+   if(detailRequestId.current===requestId)setHistory(data.observations);
+  }catch(e){
+   if(detailRequestId.current===requestId)setDetailError(e instanceof Error?e.message:'详情加载失败');
+  }finally{
+   if(detailRequestId.current===requestId)setDetailLoading(false);
+  }
+ }
+ // The drawer opens over the current card; keep the scroll position in the product list.
+ useEffect(()=>{
+  if(!detailId)return;
+  const previousOverflow=document.body.style.overflow;
+  document.body.style.overflow='hidden';
+  detailCloseRef.current?.focus();
+  function keydown(event:KeyboardEvent){
+   if(event.key==='Escape'){
+    event.preventDefault();
+    closeDetail();
+   }
+   if(event.key!=='Tab')return;
+   const drawer=detailDrawerRef.current;
+   if(!drawer)return;
+   const focusable=Array.from(drawer.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'));
+   const first=focusable[0],last=focusable[focusable.length-1];
+   if(!first||!last)return;
+   if(event.shiftKey&&(document.activeElement===first||!drawer.contains(document.activeElement))){
+    event.preventDefault();last.focus();
+   }else if(!event.shiftKey&&(document.activeElement===last||!drawer.contains(document.activeElement))){
+    event.preventDefault();first.focus();
+   }
+  }
+  window.addEventListener('keydown',keydown);
+  return ()=>{
+   document.body.style.overflow=previousOverflow;
+   window.removeEventListener('keydown',keydown);
+   detailTriggerRef.current?.focus();
+  };
+ },[detailId]);
+
  async function logout(){
   await api('/api/auth/logout',{method:'POST'});location.href='/login';
  }
  const recent=stats?.worker_heartbeat?Date.now()-stats.worker_heartbeat<600000:false;
  const sourceIssue=sources.length>0?sourceBlockingReason(sources.find(s=>s.id==='xhs-browser')):null;
  const sourceFormIssues=validateSourceForm(sourceForm);
+ const detailProduct=products.find(product=>product.id===detailId);
  return <div className="app-shell">
   <header className="app-topbar">
    <div className="logo"><span className="brand-mark">X</span><span>XHS Monitor<small>Competitor Intelligence</small></span></div>
-   <nav aria-label="主导航">{[['products','商品监控'],['runs','采集记录'],['alerts','异常告警'],['settings','数据源与设置']].map(([k,v])=><button key={k} type="button" aria-pressed={tab===k} className={tab===k?'nav-item active':'nav-item'} onClick={()=>{setTab(k);setDetailId(null);}}>{v}</button>)}</nav>
+   <nav aria-label="主导航">{[['products','商品监控'],['runs','采集记录'],['alerts','异常告警'],['settings','数据源与设置']].map(([k,v])=><button key={k} type="button" aria-pressed={tab===k} className={tab===k?'nav-item active':'nav-item'} onClick={()=>{setTab(k);closeDetail();}}>{v}</button>)}</nav>
    <div className="topbar-user"><span title={username}>当前用户 · {username}</span><button className="ghost" onClick={logout}>退出登录</button></div>
   </header>
   <main className="content">
@@ -185,9 +236,7 @@ export default function Dashboard({username}:{username:string}){
       </div>}
      <p className="footnote">爆品值 =（今日新增销量－爆品预值）÷当前累计已售，爆品预值按商品设置，默认 2，可修改。按北京时间划分日期；爆品值可能是负数。商品价值（估算）= 当天商品展示价 × 今日新增销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在当日有明确展示价格且今昨均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
     </section>}
-   {tab==='products'&&detailId&&<section className="panel"><div className="panel-head"><h2>历史观察</h2><button className="ghost" onClick={()=>setDetailId(null)}>关闭</button></div><Trend items={history}/>
-    <div className="table-scroll"><table><thead><tr><th>采集时间</th><th>商品已售</th><th>销量精度</th><th>价格</th><th>店铺名称</th><th>口碑</th><th>店铺已售</th><th>粉丝数</th><th>数据质量</th></tr></thead><tbody>{history.map(o=><tr key={o.observed_at}><td>{date(o.observed_at)}</td><td>{o.sales_raw_text||'未知'}</td><td>{o.sales_precision}</td><td>{yuan(o.price_minor)}</td><td>{o.shop_observed??'—'}</td><td>{o.shop_rating_raw_text??'—'}</td><td>{o.shop_sales_raw_text??'—'}<small>{o.shop_sales_precision}</small></td><td>{o.shop_followers_raw_text??'—'}<small>{o.shop_followers_precision}</small></td><td>{o.quality_status}</td></tr>)}</tbody></table></div>
-   </section>}
+
    {tab==='runs'&&<section className="panel"><h2>最新运行记录</h2><div className="table-scroll"><table><thead><tr><th>商品</th><th>开始</th><th>状态</th><th>错误码</th><th>尝试</th></tr></thead><tbody>{runs.map(r=><tr key={r.id}><td>{r.title||r.canonical_url.slice(0,42)}</td><td>{date(r.started_at)}</td><td>{r.result||'运行中'}</td><td>{r.error_code||'—'}</td><td>{r.attempt_no}</td></tr>)}</tbody></table></div>{!runs.length&&<p className="muted">尚无运行记录。仅有排队任务不代表抓取成功。</p>}</section>}
    {tab==='alerts'&&<section className="panel"><h2>采集与数据质量告警</h2><div className="table-scroll"><table><thead><tr><th>类型</th><th>级别</th><th>发生次数</th><th>最近发生</th><th>状态</th></tr></thead><tbody>{alerts.map(a=><tr key={a.id}><td>{a.type}</td><td>{a.severity}</td><td>{a.occurrences}</td><td>{date(a.last_seen_at)}</td><td>{a.status}</td></tr>)}</tbody></table></div>{!alerts.length&&<p className="muted">暂无异常告警。</p>}</section>}
    {tab==='settings'&&<section className="panel"><h2>自动采集来源</h2><p className="error">默认关闭。只有拥有明确的自动访问、保存和内部分析许可，才可以启用来源。配置选择器并不等同于取得授权。</p>
@@ -206,5 +255,45 @@ export default function Dashboard({username}:{username:string}){
    </section>}
    <footer>© XHS Monitor · 本工具分析的是来源展示指标，不是实际支付订单数据。</footer>
   </main>
+  {detailId&&<div className="detail-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)closeDetail();}}>
+   <aside className="detail-drawer" ref={detailDrawerRef} role="dialog" aria-modal="true" aria-labelledby="detail-drawer-title">
+    <div className="detail-drawer-header">
+     <div className="detail-drawer-heading">
+      <small>商品销量监控 · 历史观察</small>
+      <h2 id="detail-drawer-title">{detailProduct?.title||'商品销量明细'}</h2>
+      <p title={detailProduct?.shop_name||undefined}>{detailProduct?.shop_name||'历史采集记录'}</p>
+     </div>
+     <button type="button" className="detail-close" ref={detailCloseRef} aria-label="关闭明细" onClick={closeDetail}>×</button>
+    </div>
+    <div className="detail-drawer-body">
+     {detailLoading?<p className="detail-state" role="status">正在加载历史记录…</p>:
+      detailError?<div className="detail-state" role="alert">明细加载失败：{detailError}<button className="secondary" onClick={()=>void showDetail(detailId)}>重新加载</button></div>:
+      history.length===0?<p className="detail-state">暂无历史采集记录。</p>:
+      <>
+       <div className="detail-record-count">{history.length} 条采集记录 · 按采集时间从近到远</div>
+       <div className="detail-history-list">
+        {history.map((o,i)=><article className="detail-history-entry" key={o.observed_at+'-'+i}>
+         <div className="detail-history-entry-head">
+          <time dateTime={new Date(o.observed_at).toISOString()}>{date(o.observed_at)}</time>
+          <span className="detail-quality">{o.quality_status==='success'?'采集成功':o.quality_status==='partial'?'采集部分成功':o.quality_status}</span>
+         </div>
+         <div className="detail-history-fields">
+          <div><small>商品已售</small><strong>{o.sales_raw_text||(o.sales_value===null?'—':o.sales_value.toLocaleString('zh-CN'))}</strong><span>精度：{o.sales_precision}</span></div>
+          <div><small>展示价格</small><strong>{yuan(o.price_minor)}</strong></div>
+          <div><small>卖家口碑</small><strong>{o.shop_rating_raw_text??'—'}</strong></div>
+          <div><small>店铺已售</small><strong>{o.shop_sales_raw_text??'—'}</strong><span>{o.shop_sales_precision}</span></div>
+          <div><small>店铺粉丝</small><strong>{o.shop_followers_raw_text??'—'}</strong><span>{o.shop_followers_precision}</span></div>
+          <div><small>采集店铺</small><strong>{o.shop_observed??'—'}</strong></div>
+         </div>
+        </article>)}
+       </div>
+       <section className="detail-history-chart">
+        <h3>商品累计销量走势</h3>
+        <Trend items={history}/>
+       </section>
+      </>}
+    </div>
+   </aside>
+  </div>}
  </div>;
 }
