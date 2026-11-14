@@ -1,5 +1,8 @@
 # XHS Monitor｜小红书竞品商品自动监控系统产品需求说明书（PRD）
 
+部署也支持已安装 Docker 的 OpenCloudOS 9.4，保留每日 08:00 自动部署能力，并对构建与运行设置内存上限。
+
+
 > **版本**：v1.1.11 · 商品页面延迟渲染与解析失败诊断
 > **日期**：2026-10-19
 > **仓库**：https://github.com/DoThingsWithAI/xhs-monitor
