@@ -53,6 +53,8 @@ export function getProductSalesTrends(
 export type HotProductScore={
   rate:number|null;
   todaySales:number|null;
+  /** Derived value in minor currency units (fen), not a booked revenue figure. */
+  productValueCents:number|null;
   observedAt:number|null;
   baselineAt:number|null;
 };
@@ -68,11 +70,11 @@ export function getHotProductScores(
  const todayStart=Math.floor((now+chinaOffsetMs)/dayMs)*dayMs-chinaOffsetMs;
  const yesterdayStart=todayStart-dayMs;
  const latestInDay=d.prepare(
-  "SELECT observed_at,sales_value,sales_precision FROM product_observations "+
+  "SELECT observed_at,sales_value,sales_precision,price_minor,price_kind FROM product_observations "+
   "WHERE product_id=? AND source_id=? AND observed_at>=? AND observed_at<? "+
   "AND sales_value IS NOT NULL ORDER BY observed_at DESC,id DESC LIMIT 1"
  );
- type Sample={observed_at:number;sales_value:number;sales_precision:string};
+ type Sample={observed_at:number;sales_value:number;sales_precision:string;price_minor:number|null;price_kind:string};
  for(const id of productIds){
   const today=latestInDay.get(id,sourceId,todayStart,todayStart+dayMs) as Sample|undefined;
   const yesterday=latestInDay.get(id,sourceId,yesterdayStart,todayStart) as Sample|undefined;
@@ -82,9 +84,17 @@ export function getHotProductScores(
    today.sales_value>0&&yesterday.sales_value>=0&&
    today.sales_value>=yesterday.sales_value;
   const todaySales=valid?today!.sales_value-yesterday!.sales_value:null;
+  const rate=valid?todaySales!/today!.sales_value:null;
+  // No true paid-order average ticket is collected. Use the exact displayed
+  // product price in the SAME today's sales snapshot as a documented proxy.
+  // Never calculate from a starting price, missing price, or stale snapshot.
+  const priceValid=valid&&today!.price_kind==='exact'&&
+   today!.price_minor!==null&&Number.isSafeInteger(today!.price_minor)&&today!.price_minor>=0;
+  const valueCents=priceValid?Math.round(today!.price_minor!*todaySales!*rate!):null;
   result[id]={
-   rate:valid?todaySales!/today!.sales_value:null,
+   rate,
    todaySales,
+   productValueCents:valueCents!==null&&Number.isSafeInteger(valueCents)&&valueCents>=0?valueCents:null,
    observedAt:today?.observed_at??null,
    baselineAt:yesterday?.observed_at??null
   };
