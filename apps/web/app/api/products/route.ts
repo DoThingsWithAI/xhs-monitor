@@ -3,6 +3,7 @@ import {getAdmin,sameOrigin} from '@/packages/core/auth';
 import {db} from '@/packages/db';
 import {createProduct} from '@/packages/db/queue';
 import {getProductSalesTrends,getHotProductScores} from '@/packages/db/product-trends';
+import {sortProductsByValue} from '@/packages/core/product-ranking';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 export async function GET(req:NextRequest){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
@@ -10,7 +11,8 @@ export async function GET(req:NextRequest){
  const ids=(rows as Array<{id:string}>).map(row=>row.id);
  const trends=getProductSalesTrends(db(),ids,'xhs-browser');
  const hotScores=getHotProductScores(db(),ids,'xhs-browser');
- return NextResponse.json({data:(rows as Array<{id:string}>).map(row=>({...row,trend_points:trends[row.id]||[],hot_score:hotScores[row.id]}))});
+ const products=(rows as Array<{id:string}>).map(row=>({...row,trend_points:trends[row.id]||[],hot_score:hotScores[row.id]}));
+ return NextResponse.json({data:sortProductsByValue(products)});
 }
 export async function POST(req:NextRequest){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});

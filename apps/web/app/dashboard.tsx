@@ -113,11 +113,11 @@ export default function Dashboard({username}:{username:string}){
  const sourceIssue=sources.length>0?sourceBlockingReason(sources.find(s=>s.id==='xhs-browser')):null;
  const sourceFormIssues=validateSourceForm(sourceForm);
  return <div className="app-shell">
-  <aside className="sidebar">
+  <header className="app-topbar">
    <div className="logo"><span className="brand-mark">X</span><span>XHS Monitor<small>Competitor Intelligence</small></span></div>
-   <nav>{[['products','商品监控'],['runs','采集记录'],['alerts','异常告警'],['settings','数据源与设置']].map(([k,v])=><button key={k} className={tab===k?'nav-item active':'nav-item'} onClick={()=>{setTab(k);setDetailId(null);}}>{v}</button>)}</nav>
-   <div className="side-bottom"><span>当前用户 · {username}</span><button className="ghost" onClick={logout}>退出登录</button></div>
-  </aside>
+   <nav aria-label="主导航">{[['products','商品监控'],['runs','采集记录'],['alerts','异常告警'],['settings','数据源与设置']].map(([k,v])=><button key={k} type="button" aria-pressed={tab===k} className={tab===k?'nav-item active':'nav-item'} onClick={()=>{setTab(k);setDetailId(null);}}>{v}</button>)}</nav>
+   <div className="topbar-user"><span title={username}>当前用户 · {username}</span><button className="ghost" onClick={logout}>退出登录</button></div>
+  </header>
   <main className="content">
    <header className="top"><div><div className="eyebrow">PERSONAL ANALYTICS</div><h1>{({products:'商品监控',runs:'采集运行记录',alerts:'异常中心',settings:'数据源与设置'} as Record<string,string>)[tab]}</h1><p className="muted">竞品商品公开展示指标观察 · 请以数据来源和精度标记为准</p></div><button className="secondary" onClick={()=>void refresh()}>刷新数据</button></header>
    {message&&<div className="notice" role="status">{message}<button className="tiny" onClick={()=>setMessage('')}>关闭</button></div>}
@@ -135,7 +135,7 @@ export default function Dashboard({username}:{username:string}){
      <div className="actions"><input value={category} onChange={e=>setCategory(e.target.value)} placeholder="分类（可选，例如：班主任资料）"/><button onClick={add} disabled={busy||!urls.trim()}>{busy?'处理中…':'添加并建立监控'}</button></div>
    </section>}
    {tab==='products'&&<section className="panel monitored-products">
-     <div className="panel-head"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 每个商品显示最近 30 次有效观察</span></div>
+     <div className="panel-head"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 默认按商品价值 → 爆品值 → 今日新增销量降序 · 每个商品显示最近 30 次有效观察</span></div>
      {products.length===0?<p className="empty">还没有商品。添加链接后，商品卡片将在这里出现；只有真实采集数据才会形成折线图。</p>:
       <div className="product-card-grid">
        {products.map(p=>{
