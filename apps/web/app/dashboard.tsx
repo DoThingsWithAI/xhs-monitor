@@ -1,8 +1,9 @@
 'use client';
-import {useEffect,useState,useCallback,useRef} from 'react';
+import {useEffect,useState,useCallback,useRef,useMemo} from 'react';
 import {XHS_GOODS_SELECTORS} from '@/packages/core/source-selectors';
 import {sourceBlockingReason} from '@/packages/core/source-readiness';
 import {validateSourceForm} from '@/packages/core/source-form-validation';
+import {sortProducts,type ProductSortKey} from '@/packages/core/product-ranking';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
 type HotProductScore={rate:number|null;todaySales:number|null;productValueCents:number|null;observedAt:number|null;baselineAt:number|null};
 type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
@@ -41,6 +42,8 @@ function Trend({items}:{items:Observation[]}){
 }
 export default function Dashboard({username}:{username:string}){
  const [tab,setTab]=useState('products'),[products,setProducts]=useState<Product[]>([]),[stats,setStats]=useState<Stats|null>(null);
+ const [sortBy,setSortBy]=useState<ProductSortKey>('recommended');
+ const sortedProducts=useMemo(()=>sortProducts(products,sortBy),[products,sortBy]);
  const [runs,setRuns]=useState<Run[]>([]),[alerts,setAlerts]=useState<Alert[]>([]),[sources,setSources]=useState<Source[]>([]);
  const [urls,setUrls]=useState(''),[category,setCategory]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  const [sourceSaveError,setSourceSaveError]=useState('');
@@ -186,10 +189,24 @@ export default function Dashboard({username}:{username:string}){
      <div className="actions"><input value={category} onChange={e=>setCategory(e.target.value)} placeholder="分类（可选，例如：班主任资料）"/><button onClick={add} disabled={busy||!urls.trim()}>{busy?'处理中…':'添加并建立监控'}</button></div>
    </section>}
    {tab==='products'&&<section className="panel monitored-products">
-     <div className="panel-head"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 默认按商品价值 → 爆品值 → 今日新增销量降序 · 每个商品显示最近 30 次有效观察</span></div>
+     <div className="panel-head product-list-toolbar">
+      <div className="product-list-heading"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 每个商品显示最近 30 次有效观察</span></div>
+      <label className="product-sort-control">
+       <span>排序方式</span>
+       <select aria-label="商品排序方式" value={sortBy} onChange={event=>setSortBy(event.target.value as ProductSortKey)}>
+        <option value="recommended">默认推荐（商品价值 → 爆品值 → 今日新增销量）</option>
+        <option value="productValue">商品价值（高 → 低）</option>
+        <option value="hotRate">爆品值（高 → 低）</option>
+        <option value="todaySales">今日新增销量（高 → 低）</option>
+        <option value="totalSales">商品累计已售（高 → 低）</option>
+        <option value="price">当前展示价格（高 → 低）</option>
+        <option value="lastCollected">最近采集时间（新 → 旧）</option>
+       </select>
+      </label>
+     </div>
      {products.length===0?<p className="empty">还没有商品。添加链接后，商品卡片将在这里出现；只有真实采集数据才会形成折线图。</p>:
       <div className="product-card-grid">
-       {products.map(p=>{
+       {sortedProducts.map(p=>{
         const trend=p.trend_points||[];
         const latest=trend.length?trend[trend.length-1]:null;
         const hot=p.hot_score;

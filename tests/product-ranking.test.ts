@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {sortProductsByValue} from '../packages/core/product-ranking';
+import {sortProducts,sortProductsByValue} from '../packages/core/product-ranking';
 
-type Row={id:string;hot_score:{productValueCents:number|null;rate:number|null;todaySales:number|null}|null};
+type Row={id:string;hot_score:{productValueCents:number|null;rate:number|null;todaySales:number|null}|null;price_minor?:number|null;observed_at?:number|null;last_success_at?:number|null;trend_points?:{t:number;sales:number}[]};
 const row=(id:string,value:number|null,rate:number|null,increment:number|null):Row=>({
  id,hot_score:{productValueCents:value,rate,todaySales:increment}
 });
@@ -39,4 +39,31 @@ test('null values come last, zero and negative values remain real sortable numbe
 test('third tie breaker uses the increment when product value and hot rate match',()=>{
  const rows=[row('sale-5',500,0.1,5),row('sale-12',500,0.1,12),row('sale-0',500,0.1,0)];
  assert.deepEqual(sortProductsByValue(rows).map(p=>p.id),['sale-12','sale-5','sale-0']);
+});
+
+
+test('selected daily-sales sort uses the selected metric first and default ranking for ties',()=>{
+ const rows=[
+  {...row('sales-5',1000,0.1,5),trend_points:[{t:1,sales:150}]},
+  {...row('sales-12-low-value',500,0.9,12),trend_points:[{t:2,sales:180}]},
+  {...row('sales-12-high-value',900,0.2,12),trend_points:[{t:3,sales:170}]},
+  {...row('sales-missing',null,null,null),trend_points:[]}
+ ];
+ assert.deepEqual(sortProducts(rows,'todaySales').map(p=>p.id),['sales-12-high-value','sales-12-low-value','sales-5','sales-missing']);
+});
+
+test('total sales, price and collection time can be selected independently',()=>{
+ const rows=[
+  {...row('older-high-sales',100,0.1,1),price_minor:300,observed_at:100,trend_points:[{t:100,sales:250}]},
+  {...row('newer-low-sales',200,0.2,2),price_minor:100,observed_at:300,trend_points:[{t:300,sales:150}]},
+  {...row('missing',null,null,null),price_minor:null,observed_at:null,trend_points:[]}
+ ];
+ assert.deepEqual(sortProducts(rows,'totalSales').map(p=>p.id),['older-high-sales','newer-low-sales','missing']);
+ assert.deepEqual(sortProducts(rows,'price').map(p=>p.id),['older-high-sales','newer-low-sales','missing']);
+ assert.deepEqual(sortProducts(rows,'lastCollected').map(p=>p.id),['newer-low-sales','older-high-sales','missing']);
+});
+
+test('recommended selection preserves the existing three-level default ranking',()=>{
+ const rows=[row('value-1',100,0.1,5),row('value-2',200,0.01,1),row('rate-1',100,0.2,1)];
+ assert.deepEqual(sortProducts(rows,'recommended').map(p=>p.id),sortProductsByValue(rows).map(p=>p.id));
 });
