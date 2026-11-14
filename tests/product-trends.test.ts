@@ -81,18 +81,43 @@ test('hot product score uses Shanghai calendar day and exact cumulative snapshot
   put('same-today','same','2026-11-14T12:00:00+08:00',120);
   put('decrease-prev','decrease','2026-11-13T12:00:00+08:00',200);
   put('decrease-today','decrease','2026-11-14T12:00:00+08:00',190);
-  const scores=getHotProductScores(d,['good','new','rounded','zero','same','decrease'],'xhs-browser',when('2026-11-14T18:00:00+08:00'));
+  put('starting-prev','starting','2026-11-13T12:00:00+08:00',100);
+  put('starting-today','starting','2026-11-14T12:00:00+08:00',120);
+  put('no-price-prev','no-price','2026-11-13T12:00:00+08:00',100);
+  put('no-price-today','no-price','2026-11-14T12:00:00+08:00',120);
+  put('free-prev','free','2026-11-13T12:00:00+08:00',100);
+  put('free-today','free','2026-11-14T12:00:00+08:00',120);
+  const setPrice=d.prepare("UPDATE product_observations SET price_minor=?,price_kind=? WHERE id=?");
+  setPrice.run(2990,'exact','curr'); // ¥29.90, today's increment is 200 at 20%
+  setPrice.run(2000,'exact','prev'); // Yesterday's price must never be used.
+  setPrice.run(500,'exact','only');
+  setPrice.run(500,'exact','rounded-today');
+  setPrice.run(500,'exact','zero-today');
+  setPrice.run(1700,'exact','same-today');
+  setPrice.run(500,'exact','decrease-today');
+  setPrice.run(1099,'starting_from','starting-today');
+  setPrice.run(0,'exact','free-today');
+  const scores=getHotProductScores(d,['good','new','rounded','zero','same','decrease','starting','no-price','free'],'xhs-browser',when('2026-11-14T18:00:00+08:00'));
   assert.equal(scores.good.todaySales,200);
   assert.equal(scores.good.rate,0.2);
+  assert.equal(scores.good.productValueCents,119600); // ¥29.90 * 200 * 0.2 = ¥1,196
   assert.equal(scores.good.observedAt,when('2026-11-14T00:01:00+08:00'));
   for(const id of ['new','rounded','zero','decrease']){
    assert.equal(scores[id].todaySales,null,id);
    assert.equal(scores[id].rate,null,id);
+   assert.equal(scores[id].productValueCents,null,id);
   }
   assert.equal(scores.same.todaySales,0);
   assert.equal(scores.same.rate,0);
+  assert.equal(scores.same.productValueCents,0); // A real zero increment is a valid zero value.
+  assert.equal(scores.starting.todaySales,20);
+  assert.equal(scores.starting.productValueCents,null); // A "starting from" price is not a ticket.
+  assert.equal(scores['no-price'].todaySales,20);
+  assert.equal(scores['no-price'].productValueCents,null);
+  assert.equal(scores.free.productValueCents,0);
   // Yesterday's sample is no longer valid when it becomes two days old.
   const tomorrow=getHotProductScores(d,['good'],'xhs-browser',when('2026-11-15T12:00:00+08:00'));
   assert.equal(tomorrow.good.rate,null);
+  assert.equal(tomorrow.good.productValueCents,null);
  }finally{d.close();}
 });
