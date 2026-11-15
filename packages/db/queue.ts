@@ -101,8 +101,8 @@ export function migrateDailyCollectionSchedule(ts=Date.now()):number {
  }).immediate();
 }
 
-export function scheduleDue() {
- const d=db(),ts=Date.now();
+export function scheduleDue(ts=Date.now()) {
+ const d=db();
  // Recover stale awaiting bindings only when the source is genuinely configured
  // and authorized. Never change permission flags here or bypass their checks.
  const sources=d.prepare('SELECT * FROM data_sources WHERE enabled=1').all() as any[];
