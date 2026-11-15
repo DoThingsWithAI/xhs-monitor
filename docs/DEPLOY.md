@@ -125,7 +125,17 @@ bash scripts/deploy.sh unschedule
 
 服务结果状态在 root 专用目录 `/var/lib/xhs-monitor-deploy/` 中，`last-status` 和 `last-success-sha` 不包含登录凭据。systemd 的退出状态与 journal 日志会反映部署故障，**当前没有邮件/微信/Telegram 主动通知功能**。
 
-**与“商品销量采集定时任务”的区别**：每天 08:00 更新的是应用本身（GitHub 代码、Docker 镜像）；商品销量抓取依旧由常驻 Playwright Worker 按每个商品的 `interval_seconds` 独立执行，二者互不等同。
+**与“商品销量采集定时任务”的区别**：每天北京时间 08:00 是应用本身的自动更新部署（GitHub 代码、Docker 镜像），**每天北京时间 19:00** 才是已获许可的商品销量监控统一开始排队采集的时间（固定 UTC 11:00，不依赖 VPS 机器时区）。多商品受最少 120 秒来源间隔和 Worker 串行限制，无法保证全部整点完成；首次合法添加/启用来源的即时首采、失败重试以及错过运行后的补跑例外。已有滚动 24 小时计划会在新版 Worker 首次启动时安全对齐到最近的合法 19:00 时段，保留历史观察与运行记录。来源要求更严格的频率时优先遵守来源限制。两个定时安排互不等同。
+
+升级部署后可通过以下只读命令核对 `next_due_at` 和 Worker 状态（均不展示密钥）：
+
+```bash
+cd /opt/xhs-monitor
+XHS_DATA_DIR=/var/lib/xhs-monitor python3 scripts/check-sales.py 6a290d7c3222c60001e051bf
+docker compose -p xhs-monitor --env-file .env -f deploy/compose.yaml logs --tail=100 worker
+```
+
+如原先每日 08:00 的自动部署已经成功安装，**不必改动 systemd 部署 timer 的时间**；19:00 的采集逻辑由新版 Worker 调度，不是另一个 systemd timer。
 
 
 ### OpenCloudOS 9.4
