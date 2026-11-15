@@ -1,6 +1,7 @@
 import {db,uuid} from '../db';
 import {parseXhsGoodsUrl} from '../core/urls';
 import {sourceGapMs} from '../core/pacing';
+import {nextBeijing1900AtOrAfter,nextBeijing1900AfterInterval} from '../core/daily-schedule';
 
 export type JobRow={id:string;binding_id:string;attempt_count:number;product_id:string;source_id:string;canonical_url:string;selectors_json:string;allowed_hosts_json:string};
 export function permissionOk(s:any,now=Date.now()) {
@@ -27,7 +28,8 @@ export function activateAwaitingBindings(d:ReturnType<typeof db>, sourceId:strin
  let count=0;
  for(const b of bindings) {
   cancel.run(ts,b.id);
-  if(update.run(ts+b.interval_seconds*1000,ts,b.id).changes && enqueueImmediate(d,b.id,ts,'activation:'+ts))count++;
+  const interval=Math.max(86400,b.interval_seconds,source.minimum_interval_seconds);
+  if(update.run(nextBeijing1900AfterInterval(ts,interval),ts,b.id).changes && enqueueImmediate(d,b.id,ts,'activation:'+ts))count++;
  }
  return count;
 }
@@ -59,14 +61,46 @@ export function createProduct(url:string,category='') {
      return {id:product.id,created:false,canonicalUrl:link};
    }
    const id=uuid(),bindingId=uuid(),authorized=permissionOk(source,ts);
+   const interval=Math.max(86400,source.minimum_interval_seconds);
    d.prepare('INSERT INTO products (id,platform_product_id,original_url,canonical_url,category,created_at,updated_at) VALUES (?,?,?,?,?,?,?)')
     .run(id,productId,link,link,category.slice(0,100),ts,ts);
    d.prepare('INSERT INTO product_source_bindings (id,product_id,source_id,status,interval_seconds,next_due_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
-    .run(bindingId,id,source.id,authorized?'ready':'awaiting_authorization',Math.max(86400,source.minimum_interval_seconds),authorized?ts+Math.max(86400,source.minimum_interval_seconds)*1000:ts,ts,ts);
+    .run(bindingId,id,source.id,authorized?'ready':'awaiting_authorization',interval,authorized?nextBeijing1900AfterInterval(ts,interval):ts,ts,ts);
    if(authorized)enqueueImmediate(d,bindingId,ts,'initial');
    return {id,created:true,canonicalUrl:link,monitoring:authorized?'queued':'awaiting_source_authorization'};
  })();
 }
+/**
+ * One-time, idempotent migration of existing rolling-24h schedules to Beijing 19:00.
+ * Historical runs/snapshots and in-flight/retry attempts are preserved.
+ * Only queued recurring jobs from the old schedule are cancelled, not first runs.
+ */
+export function migrateDailyCollectionSchedule(ts=Date.now()):number {
+ const d=db(),marker='daily_collection_1900_beijing_v1';
+ return d.transaction(()=>{
+  if(d.prepare('SELECT 1 FROM collection_schedule_migrations WHERE key=?').get(marker))return 0;
+  const bindings=d.prepare(
+   "SELECT b.id,b.interval_seconds,b.last_attempt_at,s.minimum_interval_seconds "+
+   "FROM product_source_bindings b JOIN data_sources s ON s.id=b.source_id WHERE b.status='ready'"
+  ).all() as Array<{id:string;interval_seconds:number;last_attempt_at:number|null;minimum_interval_seconds:number}>;
+  // Recurring jobs use bindingId:scheduledTimestamp as their idempotency key.
+  // Never cancel initial/activation/retry/running jobs.
+  d.prepare(
+   "UPDATE collection_jobs SET status='cancelled',updated_at=? WHERE status='queued' AND EXISTS ("+
+   "SELECT 1 FROM product_source_bindings b WHERE b.id=collection_jobs.binding_id "+
+   "AND collection_jobs.idempotency_key=b.id||':'||collection_jobs.scheduled_for)"
+  ).run(ts);
+  const update=d.prepare("UPDATE product_source_bindings SET next_due_at=?,updated_at=? WHERE id=?");
+  for(const b of bindings){
+   const interval=Math.max(86400,b.interval_seconds,b.minimum_interval_seconds);
+   const earliest=Math.max(ts+1,b.last_attempt_at===null?ts+1:b.last_attempt_at+interval*1000);
+   update.run(nextBeijing1900AtOrAfter(earliest),ts,b.id);
+  }
+  d.prepare('INSERT INTO collection_schedule_migrations (key,applied_at) VALUES (?,?)').run(marker,ts);
+  return bindings.length;
+ }).immediate();
+}
+
 export function scheduleDue() {
  const d=db(),ts=Date.now();
  // Recover stale awaiting bindings only when the source is genuinely configured
@@ -78,14 +112,16 @@ export function scheduleDue() {
   }
  })();
  const bindings=d.prepare(
-  'SELECT b.* FROM product_source_bindings b JOIN products p ON p.id=b.product_id JOIN data_sources s ON s.id=b.source_id WHERE b.status=? AND b.next_due_at<=? AND p.monitor_status=? AND s.enabled=1 AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 AND length(trim(s.permission_basis))>=12 AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) ORDER BY b.next_due_at LIMIT 50'
+  'SELECT b.*,s.minimum_interval_seconds AS source_min_interval_seconds FROM product_source_bindings b JOIN products p ON p.id=b.product_id JOIN data_sources s ON s.id=b.source_id WHERE b.status=? AND b.next_due_at<=? AND p.monitor_status=? AND s.enabled=1 AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 AND length(trim(s.permission_basis))>=12 AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) ORDER BY b.next_due_at LIMIT 50'
  ).all('ready',ts,'active',ts) as any[];
  const enqueue=d.prepare('INSERT OR IGNORE INTO collection_jobs (id,binding_id,scheduled_for,status,idempotency_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?)');
  const advance=d.prepare('UPDATE product_source_bindings SET next_due_at=?,updated_at=? WHERE id=? AND next_due_at=?');
  d.transaction(()=>{
   for(const b of bindings){
     enqueue.run(uuid(),b.id,b.next_due_at,'queued',b.id+':'+b.next_due_at,ts,ts);
-    advance.run(Math.max(b.next_due_at,ts)+b.interval_seconds*1000,ts,b.id,b.next_due_at);
+    const interval=Math.max(86400,b.interval_seconds,b.source_min_interval_seconds);
+    const nextSlot=nextBeijing1900AtOrAfter(Math.max(ts+1,b.next_due_at+interval*1000));
+    advance.run(nextSlot,ts,b.id,b.next_due_at);
   }
  })();
  return bindings.length;
