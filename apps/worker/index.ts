@@ -1,6 +1,6 @@
 import {db,uuid} from '../../packages/db';
 import {insertCollectedObservation} from '../../packages/db/save-observation';
-import {scheduleDue,claimJob,permissionOk,appendAlert,heartbeat,finishSourceRequest,suspendSourceAfterRestriction,type JobRow} from '../../packages/db/queue';
+import {migrateDailyCollectionSchedule,scheduleDue,claimJob,permissionOk,appendAlert,heartbeat,finishSourceRequest,suspendSourceAfterRestriction,type JobRow} from '../../packages/db/queue';
 import {collectAllowedBrowserPage,CollectError,closeBrowser} from '../../packages/collectors/browser';
 
 const owner='worker-'+process.pid;
@@ -62,7 +62,9 @@ async function processOne(job:JobRow){
  }catch(e){fail(job,e);}
 }
 async function main(){
- db();console.log(JSON.stringify({event:'worker_started',owner}));
+ db();
+ const migrated=migrateDailyCollectionSchedule();
+ console.log(JSON.stringify({event:'worker_started',owner,collectionSchedule:'19:00 Asia/Shanghai',realignedBindings:migrated}));
  while(running){
   try{
    heartbeat('worker');
