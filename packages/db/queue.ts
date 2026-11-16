@@ -71,18 +71,18 @@ export function createProduct(url:string,category='') {
  })();
 }
 /**
- * One-time, idempotent migration of existing rolling-24h schedules to Beijing 19:00.
+ * One-time, idempotent migration of v1 daily schedules to next-calendar-day Beijing 19:00.
  * Historical runs/snapshots and in-flight/retry attempts are preserved.
  * Only queued recurring jobs from the old schedule are cancelled, not first runs.
  */
 export function migrateDailyCollectionSchedule(ts=Date.now()):number {
- const d=db(),marker='daily_collection_1900_beijing_v1';
+ const d=db(),marker='daily_collection_calendar_day_1900_beijing_v2';
  return d.transaction(()=>{
   if(d.prepare('SELECT 1 FROM collection_schedule_migrations WHERE key=?').get(marker))return 0;
   const bindings=d.prepare(
-   "SELECT b.id,b.interval_seconds,b.last_attempt_at,s.minimum_interval_seconds "+
+   "SELECT b.id,b.interval_seconds,b.last_attempt_at,b.created_at,s.minimum_interval_seconds "+
    "FROM product_source_bindings b JOIN data_sources s ON s.id=b.source_id WHERE b.status='ready'"
-  ).all() as Array<{id:string;interval_seconds:number;last_attempt_at:number|null;minimum_interval_seconds:number}>;
+  ).all() as Array<{id:string;interval_seconds:number;last_attempt_at:number|null;created_at:number;minimum_interval_seconds:number}>;
   // Recurring jobs use bindingId:scheduledTimestamp as their idempotency key.
   // Never cancel initial/activation/retry/running jobs.
   d.prepare(
@@ -93,8 +93,9 @@ export function migrateDailyCollectionSchedule(ts=Date.now()):number {
   const update=d.prepare("UPDATE product_source_bindings SET next_due_at=?,updated_at=? WHERE id=?");
   for(const b of bindings){
    const interval=Math.max(86400,b.interval_seconds,b.minimum_interval_seconds);
-   const earliest=Math.max(ts+1,b.last_attempt_at===null?ts+1:b.last_attempt_at+interval*1000);
-   update.run(nextBeijing1900AtOrAfter(earliest),ts,b.id);
+   const anchor=b.last_attempt_at??b.created_at;
+   const earliest=nextBeijing1900AfterInterval(anchor,interval);
+   update.run(nextBeijing1900AtOrAfter(Math.max(ts+1,earliest)),ts,b.id);
   }
   d.prepare('INSERT INTO collection_schedule_migrations (key,applied_at) VALUES (?,?)').run(marker,ts);
   return bindings.length;
@@ -118,9 +119,16 @@ export function scheduleDue(ts=Date.now()) {
  const advance=d.prepare('UPDATE product_source_bindings SET next_due_at=?,updated_at=? WHERE id=? AND next_due_at=?');
  d.transaction(()=>{
   for(const b of bindings){
-    enqueue.run(uuid(),b.id,b.next_due_at,'queued',b.id+':'+b.next_due_at,ts,ts);
     const interval=Math.max(86400,b.interval_seconds,b.source_min_interval_seconds);
-    const nextSlot=nextBeijing1900AtOrAfter(Math.max(ts+1,b.next_due_at+interval*1000));
+    // A delayed first run/retry may already have sampled this Beijing date.
+    // Also keep a stricter source-defined per-product interval after the actual attempt.
+    const allowedSlot=b.last_attempt_at===null?b.next_due_at:nextBeijing1900AfterInterval(b.last_attempt_at,interval);
+    if(allowedSlot>b.next_due_at){
+      advance.run(nextBeijing1900AtOrAfter(Math.max(ts+1,allowedSlot)),ts,b.id,b.next_due_at);
+      continue;
+    }
+    enqueue.run(uuid(),b.id,b.next_due_at,'queued',b.id+':'+b.next_due_at,ts,ts);
+    const nextSlot=nextBeijing1900AtOrAfter(Math.max(ts+1,nextBeijing1900AfterInterval(b.next_due_at,interval)));
     advance.run(nextSlot,ts,b.id,b.next_due_at);
   }
  })();

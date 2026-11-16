@@ -8,7 +8,10 @@ permissions:
   contents: read
 jobs:
   test-build:
-    runs-on: ubuntu-24.04
+    # Ubuntu 24.04 GitHub runners restrict nested Chromium user namespaces.
+    # Use the supported Ubuntu 22.04 runner for a sandboxed Chromium smoke test.
+    # Migrate once runner-level AppArmor support for the sandbox is available.
+    runs-on: ubuntu-22.04
     env:
       DB_PATH: /tmp/xhs-monitor-test.sqlite
       SESSION_SECRET: example-test-session-secret-with-more-than-40-characters-123456
@@ -29,7 +32,12 @@ jobs:
       - name: Docker image build smoke (worker)
         run: docker build -f deploy/Dockerfile.worker -t xhs-monitor-worker:test .
       - name: Chromium DOM hydration smoke (worker image)
-        run: docker run --rm --entrypoint npm xhs-monitor-worker:test run worker:smoke
+        # Retain the Chromium seccomp allowlist and Chromium's own sandbox.
+        # The fixture is local DOM HTML and needs no network access.
+        run: |
+          docker run --rm --network none \
+            --security-opt "seccomp=$PWD/deploy/seccomp_profile.json" \
+            --entrypoint npm xhs-monitor-worker:test run worker:smoke
       - name: Validate Compose config
         run: |
           cp .env.example .env
