@@ -15,8 +15,16 @@ export function nextBeijing1900After(nowMs: number): number {
   return nextBeijing1900AtOrAfter(nowMs + 1);
 }
 
-/** First regular run after an immediate collection; honor stricter source limits. */
+/**
+ * The immediate first capture belongs to its own Beijing calendar day.
+ * Start regular captures at 19:00 on the NEXT Beijing date, even if <24 hours
+ * elapsed since the initial capture. Honor source intervals STRICTER than daily.
+ * Legacy 86400 values are the old daily cadence defaults.
+ */
 export function nextBeijing1900AfterInterval(fromMs: number, intervalSeconds: number): number {
-  const seconds = Math.max(86400, intervalSeconds);
-  return nextBeijing1900AtOrAfter(fromMs + seconds * 1000);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(intervalSeconds)) throw new Error('INVALID_SCHEDULE_TIME');
+  const beijingDay = Math.floor((fromMs + 8 * 60 * 60 * 1000) / DAY_MS);
+  const nextCalendarDayAt1900 = (beijingDay + 1) * DAY_MS + BEIJING_1900_UTC_MS;
+  const stricterEarliest = intervalSeconds > 86400 ? fromMs + intervalSeconds * 1000 : nextCalendarDayAt1900;
+  return nextBeijing1900AtOrAfter(Math.max(nextCalendarDayAt1900, stricterEarliest));
 }
