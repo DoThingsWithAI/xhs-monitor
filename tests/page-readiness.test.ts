@@ -63,11 +63,11 @@ test('diagnostics contain only bounded metadata, never page text, URLs or CSS se
    shopStats:{configured:true,matched:0,nonEmpty:0,invalid:false},
    shopRating:{configured:true,matched:1,nonEmpty:1,invalid:false}
   },
-  matchedFields:1
+  matchedFields:0
  });
  const diagnostic=summarizePageProbe(probe,200,3,'selectors_not_matched');
  assert.match(diagnostic,/reason=selectors_not_matched;http=200;dom=complete/);
- assert.match(diagnostic,/bodyChars=150;fields=0;matched=1/);
+ assert.match(diagnostic,/bodyChars=150;fields=0;matched=0/);
  assert.match(diagnostic,/hits=title:0\/0,sales:0\/0/);
  assert.match(diagnostic,/blockedSubresources=3$/);
  assert.doesNotMatch(diagnostic,/goods-name|xiaohongshu\.com|已售/);
