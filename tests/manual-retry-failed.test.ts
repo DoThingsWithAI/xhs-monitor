@@ -36,7 +36,7 @@ test('manual retry queues only latest terminal failures and still respects sourc
  const pending=addBinding('a50000000000000000000005');
 
  const eligibleFailure=addJob(eligible.bindingId,'failed',ts-500,'attempt-failed');
- addJob(retrying.bindingId,'retry_wait',ts-400,'auto-retry',ts+30000);
+ addJob(retrying.bindingId,'retry_wait',ts-400,'auto-retry',ts+300000);
  addJob(blocked.bindingId,'failed',ts-300,'blocked-failure');
  addJob(paused.bindingId,'failed',ts-200,'paused-failure');
  addJob(pending.bindingId,'queued',ts-900,'older-pending');
