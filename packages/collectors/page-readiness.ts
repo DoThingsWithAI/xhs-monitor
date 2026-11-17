@@ -37,7 +37,7 @@ export function looksLikeAccessChallenge(text:string):boolean{
 }
 
 export async function waitForProductFields(page:Page,selectors:Record<string,string>,timeoutMs=15000):Promise<void>{
- const values=SELECTOR_KEYS.map(key=>selectors[key]).filter(value=>typeof value==='string'&&value.trim());
+ const values=PRODUCT_FIELD_KEYS.map(key=>selectors[key]).filter(value=>typeof value==='string'&&value.trim());
  if(!values.length)return;
  await page.waitForFunction((items:string[])=>items.some(selector=>{
   try{return Boolean(document.querySelector(selector)?.textContent?.trim());}
@@ -69,7 +69,7 @@ export async function inspectProductPage(page:Page,selectors:Record<string,strin
   const bodyText=document.body?.innerText||'';
   const bodyCharacters=bodyText.length;
   const productFields=productKeys.filter(key=>(fields[key]?.nonEmpty||0)>0).length;
-  const matchedFields=entries.filter(([key])=>(fields[key]?.matched||0)>0).length;
+  const matchedFields=productKeys.filter(key=>(fields[key]?.matched||0)>0).length;
   return {
    readyState:document.readyState,
    bodyCharacters,
