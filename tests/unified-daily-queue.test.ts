@@ -41,7 +41,7 @@ test('unified Beijing 19:00 batch is idempotent and respects pending work and st
  addJob.run(legacyJob,legacy.bindingId,dailyAt,'queued',legacy.bindingId+':'+dailyAt,null,null,now,now);
  addJob.run(initialJob,pending.bindingId,now,'retry_wait',pending.bindingId+':initial',null,dailyAt+3600000,now,now);
  addJob.run(retryJob,blocked.bindingId,now,'retry_wait',blocked.bindingId+':retry',null,now+3600000,now,now);
- addJob.run(runningJob,blocked.bindingId,now,'running',blocked.bindingId+':running',now+10*3600000,null,now,now);
+ addJob.run(runningJob,blocked.bindingId,now,'running',blocked.bindingId+':running',now-1,null,now,now);
  addJob.run(historyJob,blocked.bindingId,now-86400000,'succeeded',blocked.bindingId+':history',null,null,now,now);
  d.prepare("INSERT INTO collection_schedule_migrations (key,applied_at) VALUES ('daily_collection_calendar_day_1900_beijing_v2',?)").run(now);
 
