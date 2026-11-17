@@ -20,9 +20,13 @@ export async function closeBrowser(){
  if(browser){await browser.close().catch(()=>{});browser=null;}
  lastBrowserActivityAt=0;
 }
+/** Pure idle guard so the five-minute close policy is independently testable. */
+export function browserIdleCloseDue(lastActivityAt:number,now:number,activeContextCount:number,idleMs=5*60_000):boolean{
+ return activeContextCount===0&&lastActivityAt>0&&now-lastActivityAt>=idleMs;
+}
 /** Close Chromium only when no page context is active and the browser has been idle long enough. */
 export async function closeBrowserIfIdle(now=Date.now(),idleMs=5*60_000):Promise<boolean>{
- if(!browser||activeContexts>0||!lastBrowserActivityAt||now-lastBrowserActivityAt<idleMs)return false;
+ if(!browser||!browserIdleCloseDue(lastBrowserActivityAt,now,activeContexts,idleMs))return false;
  await closeBrowser();
  return true;
 }
