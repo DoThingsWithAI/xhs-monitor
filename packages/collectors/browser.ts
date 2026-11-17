@@ -14,7 +14,22 @@ export class CollectError extends Error {
  constructor(public code:string, public transient=false,public status:number|null=null,public diagnostic:string|null=null){super(code);}
 }
 let browser:Browser|null=null;
-export async function closeBrowser(){if(browser){await browser.close().catch(()=>{});browser=null;}}
+let activeContexts=0;
+let lastBrowserActivityAt=0;
+export async function closeBrowser(){
+ if(browser){await browser.close().catch(()=>{});browser=null;}
+ lastBrowserActivityAt=0;
+}
+/** Pure idle guard so the five-minute close policy is independently testable. */
+export function browserIdleCloseDue(lastActivityAt:number,now:number,activeContextCount:number,idleMs=5*60_000):boolean{
+ return activeContextCount===0&&lastActivityAt>0&&now-lastActivityAt>=idleMs;
+}
+/** Close Chromium only when no page context is active and the browser has been idle long enough. */
+export async function closeBrowserIfIdle(now=Date.now(),idleMs=5*60_000):Promise<boolean>{
+ if(!browser||!browserIdleCloseDue(lastBrowserActivityAt,now,activeContexts,idleMs))return false;
+ await closeBrowser();
+ return true;
+}
 export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,hostsRaw:string):Promise<ObservationData>{
  const hosts=JSON.parse(hostsRaw) as string[];
  const sel=JSON.parse(selectorsRaw) as Record<string,string>;
@@ -24,7 +39,10 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
  if(!browser||!browser.isConnected()){
    browser=await chromium.launch({headless:true,chromiumSandbox:true,timeout:30000});
  }
+ lastBrowserActivityAt=Date.now();
  const context=await browser.newContext({acceptDownloads:false,javaScriptEnabled:true,serviceWorkers:'block'});
+ activeContexts++;
+ lastBrowserActivityAt=Date.now();
  try{
   // Browsing is permitted only on explicitly configured source hosts.
   let blockedSubresources=0;
@@ -89,5 +107,9 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
   if(String(e).includes('Timeout'))throw new CollectError('TIMEOUT',true);
   if(String(e).includes('Target closed')){await closeBrowser();throw new CollectError('BROWSER_CLOSED',true);}
   throw new CollectError('COLLECTOR_ERROR',false);
- }finally{await context.close().catch(()=>{});}
+ }finally{
+  await context.close().catch(()=>{});
+  activeContexts=Math.max(0,activeContexts-1);
+  if(browser)lastBrowserActivityAt=Date.now();
+ }
 }

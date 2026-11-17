@@ -1,13 +1,42 @@
 import {db,uuid} from '../../packages/db';
 import {insertCollectedObservation} from '../../packages/db/save-observation';
-import {migrateDailyCollectionSchedule,scheduleDue,claimJob,permissionOk,appendAlert,heartbeat,finishSourceRequest,suspendSourceAfterRestriction,type JobRow} from '../../packages/db/queue';
-import {collectAllowedBrowserPage,CollectError,closeBrowser} from '../../packages/collectors/browser';
+import {migrateDailyCollectionSchedule,migrateUnifiedDailyQueue,scheduleDue,claimJob,nextWorkerWakeAt,permissionOk,appendAlert,heartbeat,finishSourceRequest,suspendSourceAfterRestriction,type JobRow} from '../../packages/db/queue';
+import {collectAllowedBrowserPage,CollectError,closeBrowser,closeBrowserIfIdle} from '../../packages/collectors/browser';
 
 const owner='worker-'+process.pid;
+const HEARTBEAT_INTERVAL_MS=60_000;
+const MAX_IDLE_CHECK_MS=30_000;
+const BROWSER_IDLE_MS=5*60_000;
 let running=true;
-process.on('SIGTERM',()=>{running=false;});
-process.on('SIGINT',()=>{running=false;});
-const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+let lastHeartbeatAt=0;
+let interruptSleep:(()=>void)|null=null;
+function stop(){
+ running=false;
+ interruptSleep?.();
+}
+process.on('SIGTERM',stop);
+process.on('SIGINT',stop);
+function sleepInterruptible(ms:number):Promise<void>{
+ return new Promise(resolve=>{
+  let settled=false;
+  let interrupt:(()=>void)|null=null;
+  const finish=()=>{
+   if(settled)return;
+   settled=true;
+   if(interruptSleep===interrupt)interruptSleep=null;
+   resolve();
+  };
+  const timer=setTimeout(finish,Math.max(100,ms));
+  interrupt=()=>{clearTimeout(timer);finish();};
+  interruptSleep=interrupt;
+ });
+}
+function maybeHeartbeat(now=Date.now()){
+ if(now-lastHeartbeatAt>=HEARTBEAT_INTERVAL_MS){
+  heartbeat('worker');
+  lastHeartbeatAt=now;
+ }
+}
 
 function persist(job:JobRow,obs:Awaited<ReturnType<typeof collectAllowedBrowserPage>>){
  const d=db(),ts=Date.now();
@@ -64,21 +93,36 @@ async function processOne(job:JobRow){
 async function main(){
  db();
  const migrated=migrateDailyCollectionSchedule();
- console.log(JSON.stringify({event:'worker_started',owner,collectionSchedule:'19:00 Asia/Shanghai',realignedBindings:migrated}));
+ const unifiedQueueCancelled=migrateUnifiedDailyQueue();
+ console.log(JSON.stringify({
+  event:'worker_started',owner,collectionSchedule:'19:00 Asia/Shanghai',
+  realignedBindings:migrated,legacyQueuedJobsCancelled:unifiedQueueCancelled,
+  idlePollMaxMs:MAX_IDLE_CHECK_MS,heartbeatIntervalMs:HEARTBEAT_INTERVAL_MS,
+  browserIdleCloseMs:BROWSER_IDLE_MS
+ }));
  while(running){
   try{
-   heartbeat('worker');
-   scheduleDue();
+   scheduleDue(Date.now());
+   maybeHeartbeat();
    let n=0;
    while(running && n<30){
      const job:JobRow|null=claimJob(owner);
      if(!job)break;
      n++;
      await processOne(job);
-     heartbeat('worker');
+     maybeHeartbeat();
    }
-  }catch(e){console.error(JSON.stringify({event:'worker_loop_error',message:e instanceof Error?e.name:'unknown'}));}
-  if(running)await sleep(5000);
+  }catch(e){
+   console.error(JSON.stringify({event:'worker_loop_error',message:e instanceof Error?e.name:'unknown'}));
+  }
+  if(!running)break;
+  const now=Date.now();
+  await closeBrowserIfIdle(now,BROWSER_IDLE_MS);
+  maybeHeartbeat(now);
+  const nextEventAt=nextWorkerWakeAt(now);
+  const nextHeartbeatAt=lastHeartbeatAt+HEARTBEAT_INTERVAL_MS;
+  const wakeAt=Math.min(now+MAX_IDLE_CHECK_MS,nextEventAt,nextHeartbeatAt);
+  await sleepInterruptible(Math.max(100,wakeAt-now));
  }
  await closeBrowser();
 }
