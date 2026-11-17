@@ -9,6 +9,7 @@ process.env.DB_PATH=join(path,'test.sqlite');
 test('authorization defaults to disabled; scheduling and claiming are durable',async()=>{
  const {db}=await import('../packages/db');
  const {createProduct,scheduleDue,claimJob}=await import('../packages/db/queue');
+ const {beijing1900ForTimestamp}=await import('../packages/core/daily-schedule');
  const d=db();
  const originalSelectors=JSON.parse((d.prepare("SELECT selectors_json FROM data_sources WHERE id='xhs-browser'").get() as {selectors_json:string}).selectors_json);
  assert.equal(originalSelectors.sales,'.price-container .spu-text');
@@ -28,14 +29,15 @@ test('authorization defaults to disabled; scheduling and claiming are durable',a
  assert.equal(result.created,true);
  assert.equal((d.prepare('SELECT hot_threshold FROM products WHERE id=?').get(result.id) as {hot_threshold:number}).hot_threshold,2);
  assert.equal(result.monitoring,'awaiting_source_authorization');
- assert.equal(scheduleDue(),0);
+ const now=Date.now(),dailyAt=beijing1900ForTimestamp(now),scheduleAt=Math.max(now,dailyAt);
+ assert.equal(scheduleDue(dailyAt-1),0);
  assert.equal((d.prepare('SELECT count(*) AS n FROM collection_jobs').get() as {n:number}).n,0);
- const now=Date.now();
  d.prepare("UPDATE data_sources SET enabled=1,automated_access_allowed=1,storage_allowed=1,analysis_allowed=1,permission_basis='License documented for internal monitoring',updated_at=? WHERE id='xhs-browser'").run(now);
- d.prepare("UPDATE product_source_bindings SET status='ready' WHERE product_id=?").run(result.id);
- assert.equal(scheduleDue(),1);
- assert.equal(scheduleDue(),0);
- const job=claimJob('test-owner');
+ // This test simulates a long-established binding whose first capture already happened.
+ d.prepare("UPDATE product_source_bindings SET status='ready',last_attempt_at=? WHERE product_id=?").run(scheduleAt-2*86400000,result.id);
+ assert.equal(scheduleDue(scheduleAt),1);
+ assert.equal(scheduleDue(scheduleAt+1000),0);
+ const job=claimJob('test-owner',scheduleAt);
  assert.ok(job);
  assert.equal(job?.product_id,result.id);
  assert.equal(job?.attempt_count,1);
