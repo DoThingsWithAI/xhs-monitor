@@ -40,6 +40,7 @@ function statusName(p:Product,sourceIssue:string|null){
  if(p.binding_status==='blocked')return '来源已阻断';
  if(p.binding_status!=='ready')return '未准备就绪';
  if(p.latest_job_status==='queued' && p.latest_job_idempotency_key?.startsWith('manual-retry:'))return '手动重抓排队中';
+ if(p.latest_job_status==='running' && p.latest_job_idempotency_key?.startsWith('manual-retry:'))return '手动重抓进行中';
  if(p.latest_job_status==='queued' && !p.last_success_at)return '首次采集排队中';
  if(p.latest_job_status==='running' && !p.last_success_at)return '首次采集中';
  if(p.latest_job_status==='retry_wait')return '采集失败，等待重试';
