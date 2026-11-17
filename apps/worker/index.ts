@@ -19,7 +19,7 @@ process.on('SIGINT',stop);
 function sleepInterruptible(ms:number):Promise<void>{
  return new Promise(resolve=>{
   let settled=false;
-  let interrupt:()=>void;
+  let interrupt:(()=>void)|null=null;
   const finish=()=>{
    if(settled)return;
    settled=true;
