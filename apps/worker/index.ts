@@ -45,7 +45,7 @@ function fail(job:JobRow,error:unknown){
    .run(ts,job.binding_id);
   finishSourceRequest(d,job.source_id,ts);
   if(blocked)suspendSourceAfterRestriction(d,job.source_id,e.code,ts);
-  if(blocked||!retry)appendAlert(job.product_id,job.source_id,e.code,'Automated collection stopped or failed',blocked?'critical':'warning');
+  if(blocked||!retry)appendAlert(job.product_id,job.source_id,e.code,e.diagnostic?e.code+';'+e.diagnostic:e.code,blocked?'critical':'warning');
  })();
  console.error(JSON.stringify({event:'job_failed',jobId:job.id,code:e.code,blocked,retry,diagnostic:e.diagnostic}));
  if(blocked)console.error(JSON.stringify({event:'source_suspended',sourceId:job.source_id,code:e.code}));

@@ -3,7 +3,7 @@ import {assertPublicWebUrl} from '../core/urls';
 import {parsePrice,parseSales} from '../core/metrics';
 import {parseShopRating,parseShopStats} from '../core/shop-metrics';
 import {XHS_GOODS_SELECTORS} from '../core/source-selectors';
-import {inspectProductPage,summarizePageProbe,waitForProductFields} from './page-readiness';
+import {classifyPageProbe,inspectProductPage,summarizePageProbe,waitForProductFields} from './page-readiness';
 
 export type ObservationData={
  title:string|null;shop:string|null;sales:ReturnType<typeof parseSales>;price:ReturnType<typeof parsePrice>;
@@ -35,17 +35,28 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
     catch {blockedSubresources++;await route.abort('blockedbyclient');}
   });
   const page=await context.newPage();
-  const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
-  const status=response?.status()??null;
-  if(status===403||status===401||status===429)throw new CollectError('ACCESS_BLOCKED',false,status);
-  if(status && status>=500)throw new CollectError('REMOTE_5XX',true,status);
-  if(status===404)throw new CollectError('PRODUCT_UNAVAILABLE');
-  if(/login|captcha|verify/i.test(page.url()))throw new CollectError('VERIFICATION_REQUIRED');
-  await assertPublicWebUrl(page.url(),hosts);
   // domcontentloaded can fire before client-side product fields exist.
   const effective={...sel,shopRating:sel.shopRating||XHS_GOODS_SELECTORS.shopRating,
    shopStats:sel.shopStats||XHS_GOODS_SELECTORS.shopStats};
+  const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+  const status=response?.status()??null;
+  if(status===403||status===401||status===429)
+    throw new CollectError('ACCESS_BLOCKED',false,status,'reason=http_restriction;http='+status);
+  if(status && status>=500)
+    throw new CollectError('REMOTE_5XX',true,status,'reason=upstream_server_error;http='+status);
+  if(status===404)
+    throw new CollectError('PRODUCT_UNAVAILABLE',false,status,'reason=product_not_found;http=404');
+  await assertPublicWebUrl(page.url(),hosts);
+  if(/login|captcha|verify/i.test(page.url())){
+    const probe=await inspectProductPage(page,effective);
+    throw new CollectError('VERIFICATION_REQUIRED',false,status,
+      summarizePageProbe(probe,status,blockedSubresources,'challenge_url'));
+  }
   await waitForProductFields(page,effective,15000);
+  const pageProbe=await inspectProductPage(page,effective);
+  if(pageProbe.challenge)
+    throw new CollectError('VERIFICATION_REQUIRED',false,status,
+      summarizePageProbe(pageProbe,status,blockedSubresources,'verification_required'));
   const take=async(key:string)=>{
     if(!sel[key])return null;
     return page.locator(sel[key]).first().textContent({timeout:1200}).then(x=>x?.trim()||null).catch(()=>null);
@@ -63,10 +74,13 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
     .first().textContent({timeout:1200}).catch(()=>null);
   const shopMetrics=parseShopStats(shopStatLabels);
   if(!title&&!salesRaw&&!priceRaw&&!shop&&!shopMetrics.shopSales.raw&&!shopMetrics.shopFollowers.raw){
-    const probe=await inspectProductPage(page,effective);
-    const diagnostic=summarizePageProbe(probe,status,blockedSubresources);
-    if(probe.challenge)throw new CollectError('VERIFICATION_REQUIRED',false,status,diagnostic);
-    throw new CollectError('PARSER_NO_FIELDS',false,status,diagnostic);
+    const reason=classifyPageProbe(pageProbe,blockedSubresources);
+    const diagnostic=summarizePageProbe(pageProbe,status,blockedSubresources,reason);
+    if(reason==='verification_required')
+      throw new CollectError('VERIFICATION_REQUIRED',false,status,diagnostic);
+    // Only a genuinely near-empty, unblocked document gets a bounded retry.
+    // Selector drift, invalid CSS and blocked resources require diagnosis instead.
+    throw new CollectError('PARSER_NO_FIELDS',reason==='page_not_rendered',status,diagnostic);
   }
   return {title,shop,sales:parseSales(salesRaw),price:parsePrice(priceRaw),
     shopRating:parseShopRating(ratingText),...shopMetrics};

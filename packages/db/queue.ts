@@ -191,7 +191,8 @@ export function suspendSourceAfterRestriction(d:ReturnType<typeof db>,sourceId:s
 
 export function appendAlert(productId:string,sourceId:string,type:string,details:string,severity='warning'){
  const d=db(),ts=Date.now(),key=productId+':'+sourceId+':'+type;
- d.prepare('INSERT INTO alert_events (id,product_id,source_id,type,severity,dedupe_key,first_seen_at,last_seen_at,details_json) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(dedupe_key) DO UPDATE SET last_seen_at=excluded.last_seen_at,occurrences=occurrences+1,status=?').run(uuid(),productId,sourceId,type,severity,key,ts,ts,JSON.stringify({message:details.slice(0,150)}),'open');
+ // Keep the latest safe diagnostic when a deduplicated alert occurs again.
+ d.prepare('INSERT INTO alert_events (id,product_id,source_id,type,severity,dedupe_key,first_seen_at,last_seen_at,details_json) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(dedupe_key) DO UPDATE SET last_seen_at=excluded.last_seen_at,occurrences=occurrences+1,status=?,details_json=excluded.details_json').run(uuid(),productId,sourceId,type,severity,key,ts,ts,JSON.stringify({message:details.slice(0,280)}),'open');
 }
 export function heartbeat(name:string){
  db().prepare('INSERT INTO system_heartbeats VALUES (?,?) ON CONFLICT(name) DO UPDATE SET last_seen_at=excluded.last_seen_at').run(name,Date.now());

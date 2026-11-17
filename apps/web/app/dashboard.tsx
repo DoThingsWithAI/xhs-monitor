@@ -6,13 +6,33 @@ import {validateSourceForm} from '@/packages/core/source-form-validation';
 import {sortProducts,type ProductSortKey} from '@/packages/core/product-ranking';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
 type HotProductScore={rate:number|null;todaySales:number|null;productValueCents:number|null;observedAt:number|null;baselineAt:number|null};
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;last_attempt_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;latest_error_diagnostic:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
-type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;attempt_no:number};
+type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;error_message_redacted:string|null;attempt_no:number};
 type Alert={id:string;type:string;severity:string;occurrences:number;last_seen_at:number;status:string;details_json:string};
 type Observation={observed_at:number;sales_raw_text:string|null;sales_value:number|null;sales_precision:string;price_minor:number|null;quality_status:string;shop_observed:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_value:number|null;shop_sales_precision:string;shop_followers_raw_text:string|null;shop_followers_value:number|null;shop_followers_precision:string};
 const date=(value:number|null|undefined)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
+function diagnosticLabel(value:string|null|undefined){
+ if(!value)return null;
+ const reason=value.match(/(?:^|;)reason=([^;]+)/)?.[1];
+ const labels:Record<string,string>={
+  verification_required:'检测到验证或登录要求，来源已按安全策略停止',
+  challenge_url:'页面跳转到登录或验证路径',
+  invalid_selectors:'CSS 选择器配置存在语法错误',
+  page_not_rendered:'页面正文未完成渲染，将进行有限重试',
+  resources_blocked:'页面可能依赖未加入白名单的资源，需核对许可与域名配置',
+  selectors_not_matched:'页面已有内容，但配置的字段选择器均未匹配，可能发生页面结构变化',
+  fields_empty:'选择器匹配到节点，但字段文本为空'
+ };
+ return (reason?(labels[reason]||reason)+' · ':'')+value;
+}
+function alertDetail(value:string){
+ try{
+  const parsed=JSON.parse(value) as {message?:unknown};
+  return typeof parsed.message==='string'?parsed.message:'—';
+ }catch{return '—';}
+}
 const yuan=(c:number|null|undefined)=>c===null||c===undefined?'—':(c<0?'-':'')+'¥'+(Math.abs(c)/100).toFixed(2);
 function statusName(p:Product,sourceIssue:string|null){
  if(p.monitor_status==='paused')return '已暂停';
@@ -237,8 +257,13 @@ export default function Dashboard({username}:{username:string}){
           <div><small>卖家口碑</small><strong>{p.shop_rating_raw_text??'—'}</strong></div>
           <div><small>店铺已售 / 粉丝</small><strong className="product-card-small-number">{p.shop_sales_raw_text??'—'} / {p.shop_followers_raw_text??'—'}</strong></div>
          </div>
-         {p.latest_job_status==='failed'&&p.latest_error_code&&
-          <div className="product-collection-error" role="status">最近一次采集失败：{p.latest_error_code}。折线图仍显示上次成功保存的数据。</div>}
+         {['failed','retry_wait','blocked'].includes(p.latest_job_status||'')&&p.latest_error_code&&
+          <div className="product-collection-error" role="status">
+           <strong>最近一次采集未成功：{p.latest_error_code}</strong>
+           <small>最近尝试：{date(p.last_attempt_at)} · 最近成功：{date(p.last_success_at)}</small>
+           {p.latest_error_diagnostic&&<small>诊断：{diagnosticLabel(p.latest_error_diagnostic)}</small>}
+           <small>折线图继续保留最近一次有效销量历史，不会用失败数据覆盖。</small>
+          </div>}
          <SalesSparkline points={trend}/>
          <div className="product-card-footer">
           <small>最近有效销量：{latest?date(latest.t):'尚无记录'}</small>
@@ -254,8 +279,8 @@ export default function Dashboard({username}:{username:string}){
      <p className="footnote">爆品值 =（今日新增销量－爆品预值）÷当前累计已售，爆品预值按商品设置，默认 2，可修改。按北京时间划分日期；爆品值可能是负数。商品价值（估算）= 当天商品展示价 × 今日新增销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在当日有明确展示价格且今昨均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
     </section>}
 
-   {tab==='runs'&&<section className="panel"><h2>最新运行记录</h2><div className="table-scroll"><table><thead><tr><th>商品</th><th>开始</th><th>状态</th><th>错误码</th><th>尝试</th></tr></thead><tbody>{runs.map(r=><tr key={r.id}><td>{r.title||r.canonical_url.slice(0,42)}</td><td>{date(r.started_at)}</td><td>{r.result||'运行中'}</td><td>{r.error_code||'—'}</td><td>{r.attempt_no}</td></tr>)}</tbody></table></div>{!runs.length&&<p className="muted">尚无运行记录。仅有排队任务不代表抓取成功。</p>}</section>}
-   {tab==='alerts'&&<section className="panel"><h2>采集与数据质量告警</h2><div className="table-scroll"><table><thead><tr><th>类型</th><th>级别</th><th>发生次数</th><th>最近发生</th><th>状态</th></tr></thead><tbody>{alerts.map(a=><tr key={a.id}><td>{a.type}</td><td>{a.severity}</td><td>{a.occurrences}</td><td>{date(a.last_seen_at)}</td><td>{a.status}</td></tr>)}</tbody></table></div>{!alerts.length&&<p className="muted">暂无异常告警。</p>}</section>}
+   {tab==='runs'&&<section className="panel"><h2>最新运行记录</h2><div className="table-scroll"><table><thead><tr><th>商品</th><th>开始</th><th>状态</th><th>错误码</th><th>诊断摘要</th><th>尝试</th></tr></thead><tbody>{runs.map(r=><tr key={r.id}><td>{r.title||r.canonical_url.slice(0,42)}</td><td>{date(r.started_at)}</td><td>{r.result||'运行中'}</td><td>{r.error_code||'—'}</td><td>{diagnosticLabel(r.error_message_redacted)||'—'}</td><td>{r.attempt_no}</td></tr>)}</tbody></table></div>{!runs.length&&<p className="muted">尚无运行记录。仅有排队任务不代表抓取成功。</p>}</section>}
+   {tab==='alerts'&&<section className="panel"><h2>采集与数据质量告警</h2><div className="table-scroll"><table><thead><tr><th>类型</th><th>级别</th><th>发生次数</th><th>最近发生</th><th>诊断摘要</th><th>状态</th></tr></thead><tbody>{alerts.map(a=><tr key={a.id}><td>{a.type}</td><td>{a.severity}</td><td>{a.occurrences}</td><td>{date(a.last_seen_at)}</td><td>{alertDetail(a.details_json)}</td><td>{a.status}</td></tr>)}</tbody></table></div>{!alerts.length&&<p className="muted">暂无异常告警。</p>}</section>}
    {tab==='settings'&&<section className="panel"><h2>自动采集来源</h2><p className="error">默认关闭。只有拥有明确的自动访问、保存和内部分析许可，才可以启用来源。配置选择器并不等同于取得授权。</p>
     <div className="form-grid">
      <label>授权依据 / 使用许可说明（启用时至少 12 个字符）

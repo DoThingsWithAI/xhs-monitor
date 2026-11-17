@@ -136,6 +136,8 @@ XHS_DATA_DIR=/var/lib/xhs-monitor python3 scripts/check-sales.py 6a290d7c3222c60
 
 如果仍然 `PARSER_NO_FIELDS`，请根据 `http`、`dom`、`bodyChars`、`fields`、`blockedSubresources` 判断后续应排查页面结构、客户端资源或访问权限，不要循环强制访问受限来源。
 
+本次诊断增强（v1.1.12）：`PARSER_NO_FIELDS` 不再只有单一错误摘要，后台会区分页面未渲染、白名单资源被阻止、选择器无效/未匹配及字段文本为空。仅对近乎空白且未发现资源阻止的页面进行最多 3 次尝试（首次采集 + 最多 2 次有限退避重试）；其他结构性问题等待人工检查，验证码/访问限制继续暂停来源。商品卡片、运行记录、告警和只读诊断脚本均可查看脱敏元数据。不会保存页面正文/HTML/完整 URL/Token/Cookie，也不会写入失败销量或覆盖历史折线图。
+
 ## 已实现功能
 
 - 单管理员：交互式创建管理员账号、加盐 scrypt 密码校验和带签名的 HttpOnly 会话

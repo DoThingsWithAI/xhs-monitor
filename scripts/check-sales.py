@@ -245,7 +245,15 @@ def main():
                   "job=",run["job_status"],"error=",run["error_code"],"http=",run["http_status"])
             # Only print new allowlisted numeric/error metadata; never old arbitrary error content.
             detail=run["error_message_redacted"] or ""
-            if re.fullmatch(r"http=(?:none|[0-9]{3});dom=(?:loading|interactive|complete|unknown);bodyChars=[0-9]+;fields=[0-9]+;blockedSubresources=[0-9]+",detail):
+            legacy_diagnostic = re.fullmatch(
+                r"http=(?:none|[0-9]{3});dom=(?:loading|interactive|complete|unknown);bodyChars=[0-9]+;fields=[0-9]+;blockedSubresources=[0-9]+",
+                detail)
+            structured_diagnostic = re.fullmatch(
+                r"reason=[a-z_]+;http=(?:none|[0-9]{3});dom=(?:loading|interactive|complete|unknown);"
+                r"bodyChars=[0-9]+;fields=[0-9]+;matched=[0-9]+;"
+                r"invalid=(?:none|[A-Za-z,]+);hits=[A-Za-z0-9:,/!]+;blockedSubresources=[0-9]+",
+                detail)
+            if legacy_diagnostic or structured_diagnostic:
                 print("   页面诊断:",detail)
         if not result["recent_runs"]:
             print(" - 无执行记录（可能仍在等待来源授权或首次任务）")
