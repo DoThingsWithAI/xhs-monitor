@@ -1,7 +1,7 @@
 import {db,uuid} from '../db';
 import {parseXhsGoodsUrl} from '../core/urls';
 import {sourceGapMs} from '../core/pacing';
-import {nextBeijing1900AtOrAfter,nextBeijing1900AfterInterval} from '../core/daily-schedule';
+import {beijing1900ForTimestamp,beijingDateKey,nextBeijing1900AtOrAfter,nextBeijing1900After,nextBeijing1900AfterInterval} from '../core/daily-schedule';
 
 export type JobRow={id:string;binding_id:string;attempt_count:number;product_id:string;source_id:string;canonical_url:string;selectors_json:string;allowed_hosts_json:string};
 export function permissionOk(s:any,now=Date.now()) {
@@ -102,37 +102,134 @@ export function migrateDailyCollectionSchedule(ts=Date.now()):number {
  }).immediate();
 }
 
-export function scheduleDue(ts=Date.now()) {
+/**
+ * One-time cutover from rolling per-binding daily jobs to the Beijing-date queue.
+ * Only queued legacy recurring jobs are cancelled. Initial/activation, retry,
+ * running, completed and historical records remain untouched.
+ */
+export function migrateUnifiedDailyQueue(ts=Date.now()):number{
+ const d=db(),marker='unified_daily_queue_beijing_1900_v1';
+ return d.transaction(()=>{
+  if(d.prepare('SELECT 1 FROM collection_schedule_migrations WHERE key=?').get(marker))return 0;
+  const cancelled=d.prepare(
+   "UPDATE collection_jobs SET status='cancelled',updated_at=? WHERE status='queued' AND EXISTS ("+
+   "SELECT 1 FROM product_source_bindings b WHERE b.id=collection_jobs.binding_id "+
+   "AND collection_jobs.idempotency_key=b.id||':'||collection_jobs.scheduled_for)"
+  ).run(ts);
+  d.prepare('INSERT INTO collection_schedule_migrations (key,applied_at) VALUES (?,?)').run(marker,ts);
+  return cancelled.changes;
+ }).immediate();
+}
+
+/** Enqueue one durable batch for the current Beijing date, once the 19:00 slot arrives. */
+function enqueueDailyCollectionBatch(ts:number):number{
+ const dailyAt=beijing1900ForTimestamp(ts);
+ if(ts<dailyAt)return 0;
+ const day=beijingDateKey(ts),d=db();
+ return d.transaction(()=>{
+  const batch=d.prepare(
+   'INSERT OR IGNORE INTO daily_collection_batches (beijing_date,scheduled_at,enqueued_count,created_at) VALUES (?,?,0,?)'
+  ).run(day,dailyAt,ts);
+  if(!batch.changes)return 0;
+
+  const bindings=d.prepare(
+   "SELECT b.id,b.source_id,b.interval_seconds,b.last_attempt_at,b.created_at,"+
+   "s.enabled,s.automated_access_allowed,s.storage_allowed,s.analysis_allowed,s.permission_basis,"+
+   "s.permission_expires_at,s.minimum_interval_seconds "+
+   "FROM product_source_bindings b JOIN products p ON p.id=b.product_id "+
+   "JOIN data_sources s ON s.id=b.source_id "+
+   "WHERE b.status='ready' AND p.monitor_status='active' AND s.enabled=1 "+
+   "AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 "+
+   "AND length(trim(s.permission_basis))>=12 "+
+   "AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) "+
+   "ORDER BY b.created_at,b.id"
+  ).all(ts) as Array<{
+   id:string;source_id:string;interval_seconds:number;last_attempt_at:number|null;created_at:number;
+   enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;
+   permission_basis:string;permission_expires_at:number|null;minimum_interval_seconds:number;
+  }>;
+  const pending=d.prepare(
+   "SELECT 1 FROM collection_jobs WHERE binding_id=? AND status IN ('queued','running','retry_wait') LIMIT 1"
+  );
+  const enqueue=d.prepare(
+   'INSERT OR IGNORE INTO collection_jobs (id,binding_id,scheduled_for,status,idempotency_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?)'
+  );
+  const updateDue=d.prepare('UPDATE product_source_bindings SET next_due_at=?,updated_at=? WHERE id=?');
+  let enqueued=0;
+  for(const binding of bindings){
+   if(!permissionOk(binding,ts))continue;
+   const interval=Math.max(86400,binding.interval_seconds,binding.minimum_interval_seconds);
+   const anchor=binding.last_attempt_at??binding.created_at;
+   const eligibleAt=nextBeijing1900AfterInterval(anchor,interval);
+   const nextAnchor=Math.max(dailyAt,anchor);
+   const nextDue=nextBeijing1900AfterInterval(nextAnchor,interval);
+
+   // Respect stricter source/product intervals. The old next_due_at remains
+   // informational for the UI, but no longer decides when daily jobs are created.
+   if(eligibleAt>dailyAt){
+    updateDue.run(eligibleAt,ts,binding.id);
+    continue;
+   }
+   // Do not pile a new daily task on top of an initial task, an unfinished
+   // previous daily task, or a retry still waiting to run.
+   if(pending.get(binding.id)){
+    updateDue.run(nextDue,ts,binding.id);
+    continue;
+   }
+   const key='daily:'+binding.id+':'+day;
+   const result=enqueue.run(uuid(),binding.id,dailyAt,'queued',key,ts,ts);
+   if(result.changes)enqueued++;
+   updateDue.run(nextDue,ts,binding.id);
+  }
+  d.prepare('UPDATE daily_collection_batches SET enqueued_count=? WHERE beijing_date=?').run(enqueued,day);
+  return enqueued;
+ }).immediate();
+}
+
+/**
+ * Daily queue scheduling is keyed by Beijing calendar date, not by each
+ * binding's rolling next_due_at. Immediate activation/initial jobs are retained.
+ */
+export function scheduleDue(ts=Date.now()):number{
  const d=db();
- // Recover stale awaiting bindings only when the source is genuinely configured
- // and authorized. Never change permission flags here or bypass their checks.
  const sources=d.prepare('SELECT * FROM data_sources WHERE enabled=1').all() as any[];
+ let activated=0;
  d.transaction(()=>{
   for(const source of sources){
-   if(permissionOk(source,ts))activateAwaitingBindings(d,source.id,ts);
+   if(permissionOk(source,ts))activated+=activateAwaitingBindings(d,source.id,ts);
   }
  })();
- const bindings=d.prepare(
-  'SELECT b.*,s.minimum_interval_seconds AS source_min_interval_seconds FROM product_source_bindings b JOIN products p ON p.id=b.product_id JOIN data_sources s ON s.id=b.source_id WHERE b.status=? AND b.next_due_at<=? AND p.monitor_status=? AND s.enabled=1 AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 AND length(trim(s.permission_basis))>=12 AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) ORDER BY b.next_due_at LIMIT 50'
- ).all('ready',ts,'active',ts) as any[];
- const enqueue=d.prepare('INSERT OR IGNORE INTO collection_jobs (id,binding_id,scheduled_for,status,idempotency_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?)');
- const advance=d.prepare('UPDATE product_source_bindings SET next_due_at=?,updated_at=? WHERE id=? AND next_due_at=?');
- d.transaction(()=>{
-  for(const b of bindings){
-    const interval=Math.max(86400,b.interval_seconds,b.source_min_interval_seconds);
-    // A delayed first run/retry may already have sampled this Beijing date.
-    // Also keep a stricter source-defined per-product interval after the actual attempt.
-    const allowedSlot=b.last_attempt_at===null?b.next_due_at:nextBeijing1900AfterInterval(b.last_attempt_at,interval);
-    if(allowedSlot>b.next_due_at){
-      advance.run(nextBeijing1900AtOrAfter(Math.max(ts+1,allowedSlot)),ts,b.id,b.next_due_at);
-      continue;
-    }
-    enqueue.run(uuid(),b.id,b.next_due_at,'queued',b.id+':'+b.next_due_at,ts,ts);
-    const nextSlot=nextBeijing1900AtOrAfter(Math.max(ts+1,nextBeijing1900AfterInterval(b.next_due_at,interval)));
-    advance.run(nextSlot,ts,b.id,b.next_due_at);
-  }
- })();
- return bindings.length;
+ return activated+enqueueDailyCollectionBatch(ts);
+}
+
+/** Absolute time of the next useful worker wake, based on queue, pacing and 19:00. */
+export function nextWorkerWakeAt(ts=Date.now()):number{
+ const d=db(),day=beijingDateKey(ts),dailyAt=beijing1900ForTimestamp(ts);
+ const hasBatch=Boolean(d.prepare('SELECT 1 FROM daily_collection_batches WHERE beijing_date=?').get(day));
+ const dailyWake=hasBatch?nextBeijing1900After(ts):(ts>=dailyAt?ts:dailyAt);
+ const job=d.prepare(
+  "SELECT MIN(CASE "+
+  "WHEN j.status='retry_wait' THEN MAX(COALESCE(j.next_retry_at,?),COALESCE(pace.next_allowed_at,0)) "+
+  "WHEN j.status='running' THEN COALESCE(j.lease_expires_at,?) "+
+  "ELSE COALESCE(pace.next_allowed_at,0) END) AS wake_at "+
+  "FROM collection_jobs j "+
+  "JOIN product_source_bindings b ON b.id=j.binding_id "+
+  "JOIN products p ON p.id=b.product_id "+
+  "JOIN data_sources s ON s.id=b.source_id "+
+  "LEFT JOIN source_request_pacing pace ON pace.source_id=b.source_id "+
+  "WHERE j.status IN ('queued','retry_wait','running') "+
+  "AND b.status='ready' AND p.monitor_status='active' "+
+  "AND s.enabled=1 AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 "+
+  "AND length(trim(s.permission_basis))>=12 "+
+  "AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) "+
+  "AND (j.status<>'retry_wait' OR j.next_retry_at IS NOT NULL) "+
+  "AND (j.status<>'running' OR j.lease_expires_at IS NOT NULL) "+
+  "AND NOT EXISTS(SELECT 1 FROM collection_jobs other "+
+  "JOIN product_source_bindings ob ON ob.id=other.binding_id "+
+  "WHERE ob.source_id=b.source_id AND other.status='running' AND other.id<>j.id "+
+  "AND other.lease_expires_at>?)"
+ ).get(ts,ts,ts,ts) as {wake_at:number|null};
+ return Math.min(dailyWake,job.wake_at??Number.MAX_SAFE_INTEGER);
 }
 /** Claim at most one request for a source within the configured spacing window.
  * Persisting the gate in SQLite preserves throttling across worker restarts.
