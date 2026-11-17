@@ -39,7 +39,7 @@ test('manual retry queues only latest terminal failures and still respects sourc
  addJob(retrying.bindingId,'retry_wait',ts-400,'auto-retry',ts+300000);
  addJob(blocked.bindingId,'failed',ts-300,'blocked-failure');
  addJob(paused.bindingId,'failed',ts-200,'paused-failure');
- addJob(pending.bindingId,'queued',ts-900,'older-pending');
+ addJob(pending.bindingId,'retry_wait',ts-900,'older-pending',ts+300000);
  addJob(pending.bindingId,'failed',ts-100,'latest-failure');
 
  // A request completed recently; the manually queued job must wait for the same 120s source gate.
