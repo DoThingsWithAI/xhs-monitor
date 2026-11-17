@@ -35,6 +35,7 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
  if(!browser||!browser.isConnected()){
    browser=await chromium.launch({headless:true,chromiumSandbox:true,timeout:30000});
  }
+ lastBrowserActivityAt=Date.now();
  const context=await browser.newContext({acceptDownloads:false,javaScriptEnabled:true,serviceWorkers:'block'});
  activeContexts++;
  lastBrowserActivityAt=Date.now();
