@@ -28,3 +28,15 @@ export function nextBeijing1900AfterInterval(fromMs: number, intervalSeconds: nu
   const stricterEarliest = intervalSeconds > 86400 ? fromMs + intervalSeconds * 1000 : nextCalendarDayAt1900;
   return nextBeijing1900AtOrAfter(Math.max(nextCalendarDayAt1900, stricterEarliest));
 }
+
+/** Beijing calendar date for a timestamp, independent of the host timezone. */
+export function beijingDateKey(timestampMs:number):string{
+ if(!Number.isFinite(timestampMs))throw new Error('INVALID_SCHEDULE_TIME');
+ return new Date(timestampMs+8*60*60*1000).toISOString().slice(0,10);
+}
+
+/** The 19:00 Asia/Shanghai instant belonging to the timestamp's Beijing date. */
+export function beijing1900ForTimestamp(timestampMs:number):number{
+ const date=beijingDateKey(timestampMs);
+ return Date.parse(date+'T11:00:00.000Z');
+}
