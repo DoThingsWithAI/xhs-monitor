@@ -229,7 +229,8 @@ export function nextWorkerWakeAt(ts=Date.now()):number{
   "WHERE ob.source_id=b.source_id AND other.status='running' AND other.id<>j.id "+
   "AND other.lease_expires_at>?)"
  ).get(ts,ts,ts,ts) as {wake_at:number|null};
- return Math.min(dailyWake,job.wake_at??Number.MAX_SAFE_INTEGER);
+ const jobWake=job.wake_at===null?Number.MAX_SAFE_INTEGER:Math.max(ts,job.wake_at);
+ return Math.min(dailyWake,jobWake);
 }
 /** Claim at most one request for a source within the configured spacing window.
  * Persisting the gate in SQLite preserves throttling across worker restarts.
