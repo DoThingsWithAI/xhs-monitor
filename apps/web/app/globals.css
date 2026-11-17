@@ -111,8 +111,11 @@
 /* Product list sort selector */
 .monitored-products .product-list-toolbar{align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .product-list-heading{display:flex;flex-direction:column;gap:4px;min-width:0}
+.product-list-controls{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}
+.product-list-controls>button{white-space:nowrap}
+
 .product-list-heading h2{margin:0}
 .product-sort-control{display:flex;align-items:center;gap:9px;flex:none;color:#718096;font-size:13px;font-weight:600}
 .product-sort-control select{min-width:285px;max-width:min(460px,58vw);border:1px solid #dce3ee;border-radius:9px;background:#fff;color:#243650;padding:10px 34px 10px 12px;font:inherit;font-weight:500;outline:none}
 .product-sort-control select:focus{border-color:#4177e8;box-shadow:0 0 0 3px #eaf0ff}
-@media(max-width:650px){.product-sort-control{width:100%;align-items:flex-start;flex-direction:column;gap:5px}.product-sort-control select{width:100%;min-width:0;max-width:none}}
+@media(max-width:650px){.product-list-controls{width:100%;justify-content:stretch}.product-list-controls>button{width:100%}.product-sort-control{width:100%;align-items:flex-start;flex-direction:column;gap:5px}.product-sort-control select{width:100%;min-width:0;max-width:none}}

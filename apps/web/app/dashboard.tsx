@@ -6,7 +6,7 @@ import {validateSourceForm} from '@/packages/core/source-form-validation';
 import {sortProducts,type ProductSortKey} from '@/packages/core/product-ranking';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
 type HotProductScore={rate:number|null;todaySales:number|null;productValueCents:number|null;observedAt:number|null;baselineAt:number|null};
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;last_attempt_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_error_code:string|null;latest_error_diagnostic:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;last_attempt_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_job_idempotency_key:string|null;manual_retry_available:number;latest_error_code:string|null;latest_error_diagnostic:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;error_message_redacted:string|null;attempt_no:number};
@@ -39,6 +39,8 @@ function statusName(p:Product,sourceIssue:string|null){
  if(p.binding_status==='awaiting_authorization')return sourceIssue??'来源配置已满足，等待任务绑定同步';
  if(p.binding_status==='blocked')return '来源已阻断';
  if(p.binding_status!=='ready')return '未准备就绪';
+ if(p.latest_job_status==='queued' && p.latest_job_idempotency_key?.startsWith('manual-retry:'))return '手动重抓排队中';
+ if(p.latest_job_status==='running' && p.latest_job_idempotency_key?.startsWith('manual-retry:'))return '手动重抓进行中';
  if(p.latest_job_status==='queued' && !p.last_success_at)return '首次采集排队中';
  if(p.latest_job_status==='running' && !p.last_success_at)return '首次采集中';
  if(p.latest_job_status==='retry_wait')return '采集失败，等待重试';
@@ -64,8 +66,9 @@ export default function Dashboard({username}:{username:string}){
  const [tab,setTab]=useState('products'),[products,setProducts]=useState<Product[]>([]),[stats,setStats]=useState<Stats|null>(null);
  const [sortBy,setSortBy]=useState<ProductSortKey>('recommended');
  const sortedProducts=useMemo(()=>sortProducts(products,sortBy),[products,sortBy]);
+ const failedRetryCount=useMemo(()=>products.filter(product=>product.manual_retry_available===1).length,[products]);
  const [runs,setRuns]=useState<Run[]>([]),[alerts,setAlerts]=useState<Alert[]>([]),[sources,setSources]=useState<Source[]>([]);
- const [urls,setUrls]=useState(''),[category,setCategory]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+ const [urls,setUrls]=useState(''),[category,setCategory]=useState(''),[busy,setBusy]=useState(false),[retryingFailed,setRetryingFailed]=useState(false),[message,setMessage]=useState('');
  const [sourceSaveError,setSourceSaveError]=useState('');
  const [editingThresholdId,setEditingThresholdId]=useState<string|null>(null);
  const [thresholdDraft,setThresholdDraft]=useState('2');
@@ -101,6 +104,19 @@ export default function Dashboard({username}:{username:string}){
    setMessage('已处理 '+ok+'/'+result.length+' 个商品，其中 '+queued+' 个已自动加入首次采集队列。没有来源许可的商品将等待授权。');
    setUrls('');await refresh();
   }catch(e){setMessage(e instanceof Error?e.message:'添加失败');}finally{setBusy(false);}
+ }
+ async function retryFailedProducts(){
+  if(failedRetryCount===0||retryingFailed)return;
+  setRetryingFailed(true);setMessage('');
+  try{
+   const result=await api<{queued:number;eligible:number}>('/api/collection/retry-failed',{method:'POST',body:JSON.stringify({})});
+   if(result.queued>0)
+    setMessage('已将 '+result.queued+' 个失败商品重新加入采集队列。Worker 会按来源请求间隔依次抓取，不会覆盖历史销量。');
+   else
+    setMessage('目前没有符合条件的失败商品。自动重试中的任务、访问受限或来源未获授权的商品不会被强制重抓。');
+   await refresh();
+  }catch(e){setMessage(e instanceof Error?e.message:'重新抓取失败商品失败');}
+  finally{setRetryingFailed(false);}
  }
  async function saveSource(){
   setSourceSaveError('');setMessage('');
@@ -211,7 +227,11 @@ export default function Dashboard({username}:{username:string}){
    {tab==='products'&&<section className="panel monitored-products">
      <div className="panel-head product-list-toolbar">
       <div className="product-list-heading"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 每个商品显示最近 30 次有效观察</span></div>
-      <label className="product-sort-control">
+      <div className="product-list-controls">
+       <button type="button" className="secondary" onClick={()=>void retryFailedProducts()} disabled={retryingFailed||failedRetryCount===0}>
+        {retryingFailed?'正在重新排队…':'重新抓取失败商品（'+failedRetryCount+'）'}
+       </button>
+       <label className="product-sort-control">
        <span>排序方式</span>
        <select aria-label="商品排序方式" value={sortBy} onChange={event=>setSortBy(event.target.value as ProductSortKey)}>
         <option value="recommended">默认推荐（商品价值 → 爆品值 → 今日新增销量）</option>
@@ -222,8 +242,10 @@ export default function Dashboard({username}:{username:string}){
         <option value="price">当前展示价格（高 → 低）</option>
         <option value="lastCollected">最近采集时间（新 → 旧）</option>
        </select>
-      </label>
+       </label>
+      </div>
      </div>
+     <p className="footnote">仅重新排队来源仍获授权、商品仍启用且已结束自动重试的失败任务；验证码、访问限制和权限阻断不会被强制重抓。相同来源仍遵守请求间隔。</p>
      {products.length===0?<p className="empty">还没有商品。添加链接后，商品卡片将在这里出现；只有真实采集数据才会形成折线图。</p>:
       <div className="product-card-grid">
        {sortedProducts.map(p=>{

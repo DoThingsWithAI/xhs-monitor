@@ -232,6 +232,46 @@ export function nextWorkerWakeAt(ts=Date.now()):number{
  const jobWake=job.wake_at===null?Number.MAX_SAFE_INTEGER:Math.max(ts,job.wake_at);
  return Math.min(dailyWake,jobWake);
 }
+/**
+ * Requeue only terminal failures whose latest job is still failed and whose
+ * product/source remain active and authorized. Automatic retry_wait jobs,
+ * blocked sources, and bindings with pending/running work are deliberately
+ * excluded. A new failed job can be retried again because the key is tied to
+ * the specific failed job, not permanently to the product.
+ */
+export function enqueueFailedManualRetries(ts=Date.now()):{queued:number;eligible:number}{
+ const d=db();
+ return d.transaction(()=>{
+  const failed=d.prepare(
+   "SELECT b.id AS binding_id,j.id AS failed_job_id "+
+   "FROM product_source_bindings b "+
+   "JOIN products p ON p.id=b.product_id "+
+   "JOIN data_sources s ON s.id=b.source_id "+
+   "JOIN collection_jobs j ON j.id=("+
+   " SELECT latest.id FROM collection_jobs latest WHERE latest.binding_id=b.id "+
+   " ORDER BY latest.created_at DESC,latest.rowid DESC LIMIT 1) "+
+   "WHERE b.status='ready' AND p.monitor_status='active' AND j.status='failed' "+
+   "AND s.kind='licensed_browser' AND s.enabled=1 "+
+   "AND s.automated_access_allowed=1 AND s.storage_allowed=1 AND s.analysis_allowed=1 "+
+   "AND length(trim(s.permission_basis))>=12 "+
+   "AND (s.permission_expires_at IS NULL OR s.permission_expires_at>?) "+
+   "AND NOT EXISTS(SELECT 1 FROM collection_jobs pending WHERE pending.binding_id=b.id "+
+   " AND pending.status IN ('queued','running','retry_wait')) "+
+   "ORDER BY j.updated_at,b.id"
+  ).all(ts) as Array<{binding_id:string;failed_job_id:string}>;
+  const insert=d.prepare(
+   "INSERT OR IGNORE INTO collection_jobs (id,binding_id,scheduled_for,status,idempotency_key,created_at,updated_at) "+
+   "VALUES (?,?,?,'queued',?,?,?)"
+  );
+  let queued=0;
+  for(const row of failed){
+   const key='manual-retry:'+row.failed_job_id;
+   queued+=insert.run(uuid(),row.binding_id,ts,key,ts,ts).changes;
+  }
+  return {queued,eligible:failed.length};
+ }).immediate();
+}
+
 /** Claim at most one request for a source within the configured spacing window.
  * Persisting the gate in SQLite preserves throttling across worker restarts.
  * The immediate transaction serializes multiple workers so they cannot both claim
