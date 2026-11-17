@@ -53,6 +53,10 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
       summarizePageProbe(probe,status,blockedSubresources,'challenge_url'));
   }
   await waitForProductFields(page,effective,15000);
+  const pageProbe=await inspectProductPage(page,effective);
+  if(pageProbe.challenge)
+    throw new CollectError('VERIFICATION_REQUIRED',false,status,
+      summarizePageProbe(pageProbe,status,blockedSubresources,'verification_required'));
   const take=async(key:string)=>{
     if(!sel[key])return null;
     return page.locator(sel[key]).first().textContent({timeout:1200}).then(x=>x?.trim()||null).catch(()=>null);
@@ -70,9 +74,8 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
     .first().textContent({timeout:1200}).catch(()=>null);
   const shopMetrics=parseShopStats(shopStatLabels);
   if(!title&&!salesRaw&&!priceRaw&&!shop&&!shopMetrics.shopSales.raw&&!shopMetrics.shopFollowers.raw){
-    const probe=await inspectProductPage(page,effective);
-    const reason=classifyPageProbe(probe,blockedSubresources);
-    const diagnostic=summarizePageProbe(probe,status,blockedSubresources,reason);
+    const reason=classifyPageProbe(pageProbe,blockedSubresources);
+    const diagnostic=summarizePageProbe(pageProbe,status,blockedSubresources,reason);
     if(reason==='verification_required')
       throw new CollectError('VERIFICATION_REQUIRED',false,status,diagnostic);
     // Only a genuinely near-empty, unblocked document gets a bounded retry.
