@@ -39,7 +39,7 @@ test('unified Beijing 19:00 batch is idempotent and respects pending work and st
  const addJob=d.prepare('INSERT INTO collection_jobs (id,binding_id,scheduled_for,status,idempotency_key,lease_expires_at,next_retry_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)');
  const legacyJob=uuid(),initialJob=uuid(),retryJob=uuid(),runningJob=uuid(),historyJob=uuid();
  addJob.run(legacyJob,legacy.bindingId,dailyAt,'queued',legacy.bindingId+':'+dailyAt,null,null,now,now);
- addJob.run(initialJob,pending.bindingId,now,'queued',pending.bindingId+':initial',null,null,now,now);
+ addJob.run(initialJob,pending.bindingId,now,'retry_wait',pending.bindingId+':initial',null,dailyAt+3600000,now,now);
  addJob.run(retryJob,blocked.bindingId,now,'retry_wait',blocked.bindingId+':retry',null,now+3600000,now,now);
  addJob.run(runningJob,blocked.bindingId,now,'running',blocked.bindingId+':running',now+10*3600000,null,now,now);
  addJob.run(historyJob,blocked.bindingId,now-86400000,'succeeded',blocked.bindingId+':history',null,null,now,now);
@@ -49,7 +49,7 @@ test('unified Beijing 19:00 batch is idempotent and respects pending work and st
  assert.equal(migrateUnifiedDailyQueue(now+1),0);
  const status=(id:string)=>(d.prepare('SELECT status FROM collection_jobs WHERE id=?').get(id) as {status:string}).status;
  assert.equal(status(legacyJob),'cancelled');
- assert.equal(status(initialJob),'queued');
+ assert.equal(status(initialJob),'retry_wait');
  assert.equal(status(retryJob),'retry_wait');
  assert.equal(status(runningJob),'running');
  assert.equal(status(historyJob),'succeeded');
@@ -88,6 +88,8 @@ test('unified Beijing 19:00 batch is idempotent and respects pending work and st
 
  // Retry time and source pacing are both respected; the later gate wins.
  const remaining=d.prepare("SELECT id FROM collection_jobs WHERE status='queued' AND idempotency_key LIKE 'daily:%' LIMIT 1").get() as {id:string};
+ const other=d.prepare("SELECT id FROM collection_jobs WHERE status='queued' AND idempotency_key LIKE 'daily:%' AND id<>? LIMIT 1").get(remaining.id) as {id:string};
+ d.prepare("UPDATE collection_jobs SET status='cancelled' WHERE id=?").run(other.id);
  d.prepare("UPDATE collection_jobs SET status='retry_wait',next_retry_at=? WHERE id=?").run(finishedAt+60000,remaining.id);
  assert.equal(nextWorkerWakeAt(finishedAt),finishedAt+120000);
  d.prepare("UPDATE collection_jobs SET next_retry_at=? WHERE id=?").run(finishedAt+240000,remaining.id);
