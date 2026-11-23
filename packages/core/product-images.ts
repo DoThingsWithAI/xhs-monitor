@@ -1,3 +1,5 @@
+export const XHS_PRODUCT_IMAGE_SELECTOR = '.carousel-container img.carousel-image';
+
 export type ProductImageCandidate = {
   urls: string[];
   naturalWidth: number;
