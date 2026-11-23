@@ -4,10 +4,15 @@ import Database from "better-sqlite3";
 import {
   normalizeProductImageUrl,
   normalizeProductImageUrls,
+  XHS_PRODUCT_IMAGE_SELECTOR,
   selectProductImageUrls,
   type ProductImageCandidate
 } from "../packages/core/product-images";
 import { migrateProductImageColumns } from "../packages/db/product-image-migration";
+
+test("the collector selector targets only product carousel images", () => {
+  assert.equal(XHS_PRODUCT_IMAGE_SELECTOR, '.carousel-container img.carousel-image');
+});
 
 test("only public HTTPS Xiaohongshu image hosts are retained", () => {
   const allowed = "https://sns-webpic-qc.xhscdn.com/product/main.jpg?imageView2=2";
