@@ -4,6 +4,7 @@ import {db} from '@/packages/db';
 import {createProduct} from '@/packages/db/queue';
 import {getProductSalesTrends,getHotProductScores} from '@/packages/db/product-trends';
 import {sortProductsByValue} from '@/packages/core/product-ranking';
+import {parseStoredProductImageUrls} from '@/packages/core/product-images';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 export async function GET(req:NextRequest){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
@@ -11,7 +12,11 @@ export async function GET(req:NextRequest){
  const ids=(rows as Array<{id:string}>).map(row=>row.id);
  const trends=getProductSalesTrends(db(),ids,'xhs-browser');
  const hotScores=getHotProductScores(db(),ids,'xhs-browser');
- const products=(rows as Array<{id:string}>).map(row=>({...row,trend_points:trends[row.id]||[],hot_score:hotScores[row.id]}));
+ const products=(rows as Array<{id:string;image_urls_json?:string|null;[key:string]:any}>).map(row=>{
+  const {image_urls_json,...product}=row;
+  return {...product,image_urls:parseStoredProductImageUrls(image_urls_json),
+   trend_points:trends[row.id]||[],hot_score:hotScores[row.id]};
+ });
  return NextResponse.json({data:sortProductsByValue(products)});
 }
 export async function POST(req:NextRequest){
