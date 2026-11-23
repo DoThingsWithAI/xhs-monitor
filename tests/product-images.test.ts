@@ -40,7 +40,7 @@ test("large gallery images are selected while small thumbnails are ignored", () 
       naturalWidth: 800, naturalHeight: 800, renderedWidth: 64, renderedHeight: 64
     },
     {
-      urls: ["https://sns-webpic-qc.xhscdn.com/main.jpg"],
+      urls: ["https://sns-webpic-qc.xhscdn.com/main.jpg", "https://sns-webpic-qc.xhscdn.com/main-2x.jpg"],
       naturalWidth: 800, naturalHeight: 1000, renderedWidth: 320, renderedHeight: 400
     },
     {
