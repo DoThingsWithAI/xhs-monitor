@@ -10,7 +10,7 @@ export type ObservationData={
  title:string|null;shop:string|null;sales:ReturnType<typeof parseSales>;price:ReturnType<typeof parsePrice>;
  shopRating:ReturnType<typeof parseShopRating>;
  shopSales:ReturnType<typeof parseSales>;shopFollowers:ReturnType<typeof parseSales>;
- imageUrls:string[];
+ imageUrls?:string[];
 };
 export class CollectError extends Error {
  constructor(public code:string, public transient=false,public status:number|null=null,public diagnostic:string|null=null){super(code);}
