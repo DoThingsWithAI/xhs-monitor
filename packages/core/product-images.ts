@@ -75,7 +75,10 @@ export function selectProductImageUrls(
       ? candidate.renderedWidth >= MIN_RENDERED_EDGE && candidate.renderedHeight >= MIN_RENDERED_EDGE
       : candidate.naturalWidth >= MIN_RENDERED_EDGE && candidate.naturalHeight >= MIN_RENDERED_EDGE;
     if (!largeEnough) continue;
-    urls.push(...candidate.urls);
+    const firstValidUrl = candidate.urls
+      .map(value => normalizeProductImageUrl(value, baseUrl))
+      .find((value): value is string => value !== null);
+    if (firstValidUrl) urls.push(firstValidUrl);
   }
   return normalizeProductImageUrls(urls, limit, baseUrl);
 }
