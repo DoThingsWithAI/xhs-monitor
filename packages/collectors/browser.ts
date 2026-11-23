@@ -38,11 +38,9 @@ async function collectProductImageUrls(page:Page):Promise<string[]>{
  const candidates=await page.locator('img').evaluateAll(images=>images.map(image=>{
   const img=image as HTMLImageElement;
   const rect=img.getBoundingClientRect();
-  const srcset=(img.getAttribute('srcset')||'').split(',')
-   .map(item=>item.trim().split(/\s+/)[0]).filter(Boolean);
   return {
    urls:[img.currentSrc,img.getAttribute('src')||'',img.getAttribute('data-src')||'',
-    img.getAttribute('data-original')||'',img.getAttribute('data-lazy-src')||'',...srcset]
+    img.getAttribute('data-original')||'',img.getAttribute('data-lazy-src')||'']
     .filter((value):value is string=>typeof value==='string'&&value.length>0),
    naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight,
    renderedWidth:rect.width,renderedHeight:rect.height
