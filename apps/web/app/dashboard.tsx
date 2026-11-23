@@ -218,10 +218,11 @@ export default function Dashboard({username}:{username:string}){
  },[detailId]);
  useEffect(()=>{
   if(!imagePreview)return;
+  const preview=imagePreview;
   function keydown(event:KeyboardEvent){
    if(event.key==='Escape'){event.preventDefault();setImagePreview(null);}
-   if(event.key==='ArrowLeft'&&imagePreview.urls.length>1){event.preventDefault();setPreviewIndex(Math.max(0,imagePreview.index-1));}
-   if(event.key==='ArrowRight'&&imagePreview.urls.length>1){event.preventDefault();setPreviewIndex(Math.min(imagePreview.urls.length-1,imagePreview.index+1));}
+   if(event.key==='ArrowLeft'&&preview.urls.length>1){event.preventDefault();setPreviewIndex(Math.max(0,preview.index-1));}
+   if(event.key==='ArrowRight'&&preview.urls.length>1){event.preventDefault();setPreviewIndex(Math.min(preview.urls.length-1,preview.index+1));}
   }
   window.addEventListener('keydown',keydown);
   return ()=>window.removeEventListener('keydown',keydown);
