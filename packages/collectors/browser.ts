@@ -1,6 +1,6 @@
 import {chromium,type Browser,type Page} from 'playwright';
 import {assertPublicWebUrl} from '../core/urls';
-import {selectProductImageUrls,type ProductImageCandidate} from '../core/product-images';
+import {selectProductImageUrls,type ProductImageCandidate,XHS_PRODUCT_IMAGE_SELECTOR} from '../core/product-images';
 import {parsePrice,parseSales} from '../core/metrics';
 import {parseShopRating,parseShopStats} from '../core/shop-metrics';
 import {XHS_GOODS_SELECTORS} from '../core/source-selectors';
@@ -35,7 +35,7 @@ export async function closeBrowserIfIdle(now=Date.now(),idleMs=5*60_000):Promise
 
 /** Read only large image URLs already present in the permitted product-page DOM. */
 async function collectProductImageUrls(page:Page):Promise<string[]>{
- const candidates=await page.locator('img').evaluateAll(images=>images.map(image=>{
+ const candidates=await page.locator(XHS_PRODUCT_IMAGE_SELECTOR).evaluateAll(images=>images.map(image=>{
   const img=image as HTMLImageElement;
   const rect=img.getBoundingClientRect();
   return {
