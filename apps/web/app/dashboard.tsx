@@ -6,7 +6,7 @@ import {validateSourceForm} from '@/packages/core/source-form-validation';
 import {sortProducts,type ProductSortKey} from '@/packages/core/product-ranking';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
 type HotProductScore={rate:number|null;todaySales:number|null;productValueCents:number|null;observedAt:number|null;baselineAt:number|null};
-type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;last_attempt_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_job_idempotency_key:string|null;manual_retry_available:number;latest_error_code:string|null;latest_error_diagnostic:string|null;trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
+type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;last_attempt_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_job_idempotency_key:string|null;manual_retry_available:number;latest_error_code:string|null;latest_error_diagnostic:string|null;image_urls:string[];trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
 type Stats={products:number;ready:number;blocked:number;alerts:number;worker_heartbeat:number|null};
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;error_message_redacted:string|null;attempt_no:number};
@@ -62,6 +62,17 @@ function Trend({items}:{items:Observation[]}){
  const path=points.map((p,i)=>((i/(points.length-1))*740+20).toFixed(1)+','+(160-(((p.sales_value as number)-min)/span)*120).toFixed(1)).join(' ');
  return <div><svg role="img" aria-label="销量展示值历史趋势，不代表真实订单增量" viewBox="0 0 780 185" className="trend"><polyline points={path} fill="none" stroke="#3e78f0" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg><p className="footnote">仅供展示值趋势参考；“万+”属于近似下界，不代表真实订单增量。</p></div>;
 }
+
+function ProductCover({urls,title,onPreview}:{urls:string[];title:string;onPreview:()=>void}){
+ const [failed,setFailed]=useState(false);
+ const src=urls[0];
+ if(!src||failed)return <div className="product-card-cover product-card-cover-empty" role="img" aria-label={title+'暂无商品图片'}><span>暂无商品图片</span></div>;
+ return <button type="button" className="product-card-cover" onClick={onPreview} aria-label={'放大查看'+title+'图片'}>
+  <img src={src} alt={title} loading="lazy" onError={()=>setFailed(true)}/>
+  {urls.length>1&&<span className="product-image-count">{urls.length} 张</span>}
+ </button>;
+}
+
 export default function Dashboard({username}:{username:string}){
  const [tab,setTab]=useState('products'),[products,setProducts]=useState<Product[]>([]),[stats,setStats]=useState<Stats|null>(null);
  const [sortBy,setSortBy]=useState<ProductSortKey>('recommended');
@@ -75,6 +86,8 @@ export default function Dashboard({username}:{username:string}){
  const [savingThreshold,setSavingThreshold]=useState(false);
  const [detailId,setDetailId]=useState<string|null>(null),[history,setHistory]=useState<Observation[]>([]);
  const [detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState('');
+ const [imagePreview,setImagePreview]=useState<{urls:string[];index:number;title:string}|null>(null);
+ const [imagePreviewFailed,setImagePreviewFailed]=useState(false);
  const detailRequestId=useRef(0);
  const detailDrawerRef=useRef<HTMLElement|null>(null),detailCloseRef=useRef<HTMLButtonElement|null>(null);
  const detailTriggerRef=useRef<HTMLElement|null>(null);
@@ -145,6 +158,15 @@ export default function Dashboard({username}:{username:string}){
   }catch(e){setMessage(e instanceof Error?e.message:'爆品预值保存失败');}
   finally{setSavingThreshold(false);}
  }
+ function openImagePreview(urls:string[],title:string){
+  if(!urls.length)return;
+  setImagePreviewFailed(false);
+  setImagePreview({urls,index:0,title});
+ }
+ function setPreviewIndex(index:number){
+  setImagePreviewFailed(false);
+  setImagePreview(current=>current?{...current,index}:current);
+ }
  function closeDetail(){
   detailRequestId.current+=1;
   setDetailId(null);
@@ -194,6 +216,17 @@ export default function Dashboard({username}:{username:string}){
    detailTriggerRef.current?.focus();
   };
  },[detailId]);
+ useEffect(()=>{
+  if(!imagePreview)return;
+  const preview=imagePreview;
+  function keydown(event:KeyboardEvent){
+   if(event.key==='Escape'){event.preventDefault();setImagePreview(null);}
+   if(event.key==='ArrowLeft'&&preview.urls.length>1){event.preventDefault();setPreviewIndex(Math.max(0,preview.index-1));}
+   if(event.key==='ArrowRight'&&preview.urls.length>1){event.preventDefault();setPreviewIndex(Math.min(preview.urls.length-1,preview.index+1));}
+  }
+  window.addEventListener('keydown',keydown);
+  return ()=>window.removeEventListener('keydown',keydown);
+ },[imagePreview]);
 
  async function logout(){
   await api('/api/auth/logout',{method:'POST'});location.href='/login';
@@ -254,6 +287,7 @@ export default function Dashboard({username}:{username:string}){
         const hot=p.hot_score;
         return <article className="product-card" key={p.id}>
          <div className="product-card-top">
+          <ProductCover key={p.id+'-'+((p.image_urls||[])[0]||'')} urls={p.image_urls||[]} title={p.title||'商品'} onPreview={()=>openImagePreview(p.image_urls||[],p.title||'商品图片')}/>
           <div className="product-card-title">
            <strong title={p.title||p.canonical_url}>{p.title||'待采集商品名称'}</strong>
            <span>{p.shop_name||p.category||'店铺信息待采集'}</span>
@@ -358,6 +392,26 @@ export default function Dashboard({username}:{username:string}){
       </>}
     </div>
    </aside>
+
+  </div>}
+  {imagePreview&&<div className="image-preview-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)setImagePreview(null);}}>
+   <section className="image-preview-dialog" role="dialog" aria-modal="true" aria-label="商品图片预览">
+    <header className="image-preview-header">
+     <div><strong>{imagePreview.title}</strong><small>{imagePreview.index+1} / {imagePreview.urls.length}</small></div>
+     <button type="button" className="detail-close" aria-label="关闭图片预览" onClick={()=>setImagePreview(null)}>×</button>
+    </header>
+    <div className="image-preview-stage">
+     {imagePreview.urls.length>1&&<button type="button" className="image-preview-nav" aria-label="上一张" disabled={imagePreview.index===0} onClick={()=>setPreviewIndex(imagePreview.index-1)}>‹</button>}
+     {imagePreviewFailed?<div className="image-preview-failed">图片加载失败</div>:
+      <img src={imagePreview.urls[imagePreview.index]} alt={imagePreview.title+' 第'+(imagePreview.index+1)+'张'} onError={()=>setImagePreviewFailed(true)}/>}
+     {imagePreview.urls.length>1&&<button type="button" className="image-preview-nav" aria-label="下一张" disabled={imagePreview.index===imagePreview.urls.length-1} onClick={()=>setPreviewIndex(imagePreview.index+1)}>›</button>}
+    </div>
+    {imagePreview.urls.length>1&&<div className="image-preview-thumbnails">
+     {imagePreview.urls.map((url,index)=><button type="button" key={url} className={imagePreview.index===index?'active':''} aria-label={'查看第'+(index+1)+'张'} aria-pressed={imagePreview.index===index} onClick={()=>setPreviewIndex(index)}>
+      <img src={url} alt="" loading="lazy" onError={event=>{event.currentTarget.style.visibility='hidden';}}/>
+     </button>)}
+    </div>}
+   </section>
   </div>}
  </div>;
 }

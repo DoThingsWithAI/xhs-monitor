@@ -1,6 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {getAdmin,sameOrigin} from '@/packages/core/auth';
 import {db} from '@/packages/db';
+import {parseStoredProductImageUrls} from '@/packages/core/product-images';
 export const runtime='nodejs';export const dynamic='force-dynamic';
 export async function GET(req:NextRequest,ctx:{params:Promise<{id:string}>}){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});
@@ -8,7 +9,8 @@ export async function GET(req:NextRequest,ctx:{params:Promise<{id:string}>}){
  const p=db().prepare('SELECT * FROM products WHERE id=? AND monitor_status<>?').get(id,'deleted');
  if(!p)return NextResponse.json({error:'NOT_FOUND'},{status:404});
  const observations=db().prepare('SELECT * FROM product_observations WHERE product_id=? ORDER BY observed_at DESC LIMIT 240').all(id);
- return NextResponse.json({data:{product:p,observations}});
+ const {image_urls_json,...product}=p as Record<string,unknown>;
+ return NextResponse.json({data:{product:{...product,image_urls:parseStoredProductImageUrls(image_urls_json)},observations}});
 }
 export async function PATCH(req:NextRequest,ctx:{params:Promise<{id:string}>}){
  if(!getAdmin(req))return NextResponse.json({error:'UNAUTHORIZED'},{status:401});

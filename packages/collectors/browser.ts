@@ -1,5 +1,6 @@
-import {chromium,type Browser} from 'playwright';
+import {chromium,type Browser,type Page} from 'playwright';
 import {assertPublicWebUrl} from '../core/urls';
+import {selectProductImageUrls,type ProductImageCandidate,XHS_PRODUCT_IMAGE_SELECTOR} from '../core/product-images';
 import {parsePrice,parseSales} from '../core/metrics';
 import {parseShopRating,parseShopStats} from '../core/shop-metrics';
 import {XHS_GOODS_SELECTORS} from '../core/source-selectors';
@@ -9,6 +10,7 @@ export type ObservationData={
  title:string|null;shop:string|null;sales:ReturnType<typeof parseSales>;price:ReturnType<typeof parsePrice>;
  shopRating:ReturnType<typeof parseShopRating>;
  shopSales:ReturnType<typeof parseSales>;shopFollowers:ReturnType<typeof parseSales>;
+ imageUrls?:string[];
 };
 export class CollectError extends Error {
  constructor(public code:string, public transient=false,public status:number|null=null,public diagnostic:string|null=null){super(code);}
@@ -30,6 +32,23 @@ export async function closeBrowserIfIdle(now=Date.now(),idleMs=5*60_000):Promise
  await closeBrowser();
  return true;
 }
+
+/** Read only large image URLs already present in the permitted product-page DOM. */
+async function collectProductImageUrls(page:Page):Promise<string[]>{
+ const candidates=await page.locator(XHS_PRODUCT_IMAGE_SELECTOR).evaluateAll(images=>images.map(image=>{
+  const img=image as HTMLImageElement;
+  const rect=img.getBoundingClientRect();
+  return {
+   urls:[img.currentSrc,img.getAttribute('src')||'',img.getAttribute('data-src')||'',
+    img.getAttribute('data-original')||'',img.getAttribute('data-lazy-src')||'']
+    .filter((value):value is string=>typeof value==='string'&&value.length>0),
+   naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight,
+   renderedWidth:rect.width,renderedHeight:rect.height
+  };
+ })) as ProductImageCandidate[];
+ return selectProductImageUrls(candidates,page.url());
+}
+
 export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,hostsRaw:string):Promise<ObservationData>{
  const hosts=JSON.parse(hostsRaw) as string[];
  const sel=JSON.parse(selectorsRaw) as Record<string,string>;
@@ -100,8 +119,10 @@ export async function collectAllowedBrowserPage(url:string,selectorsRaw:string,h
     // Selector drift, invalid CSS and blocked resources require diagnosis instead.
     throw new CollectError('PARSER_NO_FIELDS',reason==='page_not_rendered',status,diagnostic);
   }
+  // Image discovery is best-effort and never changes the sales collection result.
+  const imageUrls=await collectProductImageUrls(page).catch(()=>[]);
   return {title,shop,sales:parseSales(salesRaw),price:parsePrice(priceRaw),
-    shopRating:parseShopRating(ratingText),...shopMetrics};
+    shopRating:parseShopRating(ratingText),...shopMetrics,imageUrls};
  }catch(e){
   if(e instanceof CollectError)throw e;
   if(String(e).includes('Timeout'))throw new CollectError('TIMEOUT',true);

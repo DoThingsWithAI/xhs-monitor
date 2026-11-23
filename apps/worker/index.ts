@@ -46,7 +46,10 @@ function persist(job:JobRow,obs:Awaited<ReturnType<typeof collectAllowedBrowserP
   const quality=obs.sales.value===null?'partial':'success';
   insertCollectedObservation(d,job,run.id,ts,obs,quality);
   finishSourceRequest(d,job.source_id,ts);
-  d.prepare('UPDATE products SET title=COALESCE(?,title),shop_name=COALESCE(?,shop_name),updated_at=? WHERE id=?').run(obs.title,obs.shop,ts,job.product_id);
+  const imageUrlsJson=JSON.stringify(obs.imageUrls||[]);
+  d.prepare(`UPDATE products SET title=COALESCE(?,title),shop_name=COALESCE(?,shop_name),
+   image_urls_json=CASE WHEN ?<>'[]' THEN ? ELSE image_urls_json END,updated_at=? WHERE id=?`)
+   .run(obs.title,obs.shop,imageUrlsJson,imageUrlsJson,ts,job.product_id);
   d.prepare('UPDATE collection_runs SET result=?,finished_at=? WHERE id=?').run(quality,ts,run.id);
   d.prepare("UPDATE collection_jobs SET status=?,lease_owner=NULL,lease_expires_at=NULL,updated_at=? WHERE id=?")
    .run(quality==='success'?'succeeded':'partial',ts,job.id);
