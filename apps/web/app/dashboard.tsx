@@ -14,7 +14,7 @@ type Stats={products:number;ready:number;blocked:number;alerts:number;worker_hea
 type Run={id:string;title:string|null;canonical_url:string;started_at:number;finished_at:number|null;result:string|null;error_code:string|null;error_message_redacted:string|null;attempt_no:number};
 type Alert={id:string;type:string;severity:string;occurrences:number;last_seen_at:number;status:string;details_json:string};
 type Observation={observed_at:number;sales_raw_text:string|null;sales_value:number|null;sales_precision:string;price_minor:number|null;quality_status:string;shop_observed:string|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_value:number|null;shop_sales_precision:string;shop_followers_raw_text:string|null;shop_followers_value:number|null;shop_followers_precision:string};
-const date=(value:number|null|undefined)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
+const date=(value:number|null|undefined)=>value?new Date(value).toLocaleString('zh-CN',{hour12:false,timeZone:'Asia/Shanghai'}):'—';
 function diagnosticLabel(value:string|null|undefined){
  if(!value)return null;
  const reason=value.match(/(?:^|;)reason=([^;]+)/)?.[1];
@@ -262,27 +262,27 @@ export default function Dashboard({username}:{username:string}){
    </section>}
    {tab==='products'&&<section className="panel monitored-products">
      <div className="panel-head product-list-toolbar">
-      <div className="product-list-heading"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 数据日期：{ranking?.selected?.date??'暂无已发布批次'}</span></div>
+      <div className="product-list-heading"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 榜单日期：{ranking?.selected?.date??'暂无已发布数据'}</span></div>
       <div className="product-list-controls">
-       <label className="product-sort-control"><span>数据日期</span><select aria-label="数据日期" value={rankingDate} onChange={e=>setRankingDate(e.target.value)}><option value="">最新已发布批次</option>{ranking?.dates.map(day=><option key={day} value={day}>{day}</option>)}</select></label>
+       <label className="product-sort-control"><span>榜单日期</span><select aria-label="榜单日期" value={rankingDate} onChange={e=>setRankingDate(e.target.value)}><option value="">最新已完成采集</option>{ranking?.dates.map(day=><option key={day} value={day}>{day}</option>)}</select></label>
        <button type="button" className="secondary" onClick={()=>void retryFailedProducts()} disabled={retryingFailed||failedRetryCount===0}>
         {retryingFailed?'正在重新排队…':'重新抓取失败商品（'+failedRetryCount+'）'}
        </button>
        <label className="product-sort-control">
        <span>排序方式</span>
        <select aria-label="商品排序方式" value={sortBy} onChange={event=>setSortBy(event.target.value as ProductSortKey)}>
-        <option value="recommended">默认推荐（商品价值 → 爆品值 → 本期日销量）</option>
+        <option value="recommended">默认推荐（商品价值 → 爆品值 → 日销量）</option>
         <option value="productValue">商品价值（高 → 低）</option>
         <option value="hotRate">爆品值（高 → 低）</option>
-        <option value="todaySales">本期日销量（高 → 低）</option>
+        <option value="todaySales">日销量（高 → 低）</option>
         <option value="totalSales">商品累计已售（高 → 低）</option>
-        <option value="price">批次展示价格（高 → 低）</option>
+        <option value="price">最近记录价格（高 → 低）</option>
         <option value="lastCollected">最近采集时间（新 → 旧）</option>
        </select>
        </label>
       </div>
      </div>
-     <p className="footnote" role="status">{ranking?.latest?('最新采集批次 '+ranking.latest.date+' · '+(ranking.latest.state==='pending'?'采集中 '+ranking.latest.finished+'/'+ranking.latest.total+'，继续展示已发布数据':ranking.latest.state==='published'?'采集结束，成功 '+ranking.latest.succeeded+'/'+ranking.latest.total:ranking.latest.state==='failed'?'全部未成功，保留旧榜单':'无计划任务，保留旧榜单')):'等待每日 19:00 采集批次'}。未获得本期有效日增量的商品不参与默认排名。</p>
+     <p className="footnote" role="status">{ranking?.latest?('最新采集批次 '+ranking.latest.date+' · '+(ranking.latest.state==='pending'?'采集中（已结束 '+ranking.latest.finished+'/'+ranking.latest.total+' 项），榜单暂不更新':ranking.latest.state==='published'?'采集结束，成功 '+ranking.latest.succeeded+'/'+ranking.latest.total+' 项':ranking.latest.state==='failed'?'全部采集未成功，保留上次榜单':'无计划任务，保留旧榜单')):'等待每日 19:00 采集批次'}。日销量为榜单日期与前一天的累计已售差值（估算）；缺少有效数据的商品排在有效数据之后。</p>
      <p className="footnote">仅重新排队来源仍获授权、商品仍启用且已结束自动重试的失败任务；验证码、访问限制和权限阻断不会被强制重抓。相同来源仍遵守请求间隔。</p>
      {products.length===0?<p className="empty">还没有商品。添加链接后，商品卡片将在这里出现；只有真实采集数据才会形成折线图。</p>:
       <div className="product-card-grid">
@@ -301,8 +301,8 @@ export default function Dashboard({username}:{username:string}){
          </div>
          <div className="product-card-kpis">
           <div><small>最近有效商品已售</small><strong>{latest?(latest.sales_raw_text||latest.sales.toLocaleString('zh-CN')):'—'}</strong></div>
-          <div><small>爆品值（本期日销量－预值）/累计已售</small><strong title={hot?.rate!==null&&hot?.rate!==undefined?'对比 '+date(hot.baselineAt)+' 与 '+date(hot.observedAt)+' 两次采集的展示销量':'需本期及前一日常规批次均有精确销量记录'}>{typeof hot?.rate==='number'?(hot.rate*100).toFixed(2)+'%':'—'}</strong></div>
-          <div><small>本期日销量（快照估算）</small><strong>{typeof hot?.todaySales==='number'?hot.todaySales.toLocaleString('zh-CN'):'—'}</strong>{ranking?.selected&&hot?.todaySales==null&&<small>{hot?.observedAt?'缺少有效日增量':'本期未更新'}</small>}</div>
+          <div><small>爆品值（日销量－预值）/累计已售</small><strong title={hot?.rate!==null&&hot?.rate!==undefined?'对比 '+date(hot.baselineAt)+' 与 '+date(hot.observedAt)+' 两次采集的展示销量':'需本期及前一日常规批次均有精确销量记录'}>{typeof hot?.rate==='number'?(hot.rate*100).toFixed(2)+'%':'—'}</strong></div>
+          <div><small>日销量（快照估算）</small><strong>{typeof hot?.todaySales==='number'?hot.todaySales.toLocaleString('zh-CN'):'—'}</strong>{ranking?.selected&&hot?.todaySales==null&&<small>{hot?.observedAt?'缺少可比较的销量数据':'所选日期无有效采集'}</small>}</div>
            <div className="hot-threshold-control">
             <small>爆品预值（阈值，默认 2）</small>
             {editingThresholdId===p.id?
@@ -313,8 +313,8 @@ export default function Dashboard({username}:{username:string}){
              </div>:
              <div className="hot-threshold-display"><strong>{p.hot_threshold??2}</strong><button className="text-button" onClick={()=>{setEditingThresholdId(p.id);setThresholdDraft(String(p.hot_threshold??2));}}>调整</button></div>}
            </div>
-          <div><small>商品价值（估算）</small><strong title="商品价值 = 商品当日展示价（代替实际客单价）× 本期日销量 × 爆品值。缺少精确价格或销量时不计算。">{yuan(hot?.productValueCents)}</strong></div>
-          <div><small>批次展示价格</small><strong>{yuan(p.price_minor)}</strong></div>
+          <div><small>商品价值（估算）</small><strong title="商品价值 = 商品当日展示价（代替实际客单价）× 日销量 × 爆品值。缺少精确价格或销量时不计算。">{yuan(hot?.productValueCents)}</strong></div>
+          <div><small>最近记录价格</small><strong>{yuan(p.price_minor)}</strong></div>
           <div><small>卖家口碑</small><strong>{p.shop_rating_raw_text??'—'}</strong></div>
           <div><small>店铺已售 / 粉丝</small><strong className="product-card-small-number">{p.shop_sales_raw_text??'—'} / {p.shop_followers_raw_text??'—'}</strong></div>
          </div>
@@ -327,7 +327,7 @@ export default function Dashboard({username}:{username:string}){
           </div>}
          <SalesSparkline points={trend}/>
          <div className="product-card-footer">
-          <small>最近有效销量：{latest?date(latest.t):'尚无记录'}</small>
+          <small>最近有效销量记录：{latest?date(latest.t):'尚无记录'}</small>
           <div>
            <a href={p.canonical_url} target="_blank" rel="noopener noreferrer">商品链接 ↗</a>
            <button className="text-button" onClick={()=>void showDetail(p.id)}>明细</button>
@@ -337,7 +337,7 @@ export default function Dashboard({username}:{username:string}){
         </article>;
        })}
       </div>}
-     <p className="footnote">爆品值 =（本期日销量－爆品预值）÷本期累计已售，爆品预值按商品设置，默认 2，可修改。按北京时间计划批次划分日期；爆品值可能是负数。商品价值（估算）= 当天商品展示价 × 本期日销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在当日有明确展示价格且本期和前一日批次均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
+     <p className="footnote">爆品值 =（日销量－爆品预值）÷本期累计已售，爆品预值按商品设置，默认 2，可修改。以榜单日期对应的北京时间采集计划为准；爆品值可能是负数。商品价值（估算）= 榜单日期商品展示价 × 日销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在榜单日期有明确展示价格，且该日与前一日均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
     </section>}
 
    {tab==='runs'&&<section className="panel"><h2>最新运行记录</h2><div className="table-scroll"><table><thead><tr><th>商品</th><th>开始</th><th>状态</th><th>错误码</th><th>诊断摘要</th><th>尝试</th></tr></thead><tbody>{runs.map(r=><tr key={r.id}><td>{r.title||r.canonical_url.slice(0,42)}</td><td>{date(r.started_at)}</td><td>{r.result||'运行中'}</td><td>{r.error_code||'—'}</td><td>{diagnosticLabel(r.error_message_redacted)||'—'}</td><td>{r.attempt_no}</td></tr>)}</tbody></table></div>{!runs.length&&<p className="muted">尚无运行记录。仅有排队任务不代表抓取成功。</p>}</section>}
