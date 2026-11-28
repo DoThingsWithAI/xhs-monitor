@@ -17,7 +17,8 @@ export function getProductSalesTrends(
  d:Database.Database,
  productIds:readonly string[],
  sourceId='xhs-browser',
- limit=30
+ limit=30,
+ cutoff=Number.MAX_SAFE_INTEGER
 ):Record<string,SalesTrendPoint[]>{
  const result:Record<string,SalesTrendPoint[]>=Object.create(null);
  const cappedLimit=Math.max(1,Math.min(30,Math.trunc(limit)||30));
@@ -25,11 +26,11 @@ export function getProductSalesTrends(
   "SELECT observed_at,sales_value,sales_raw_text,sales_precision "+
   "FROM product_observations "+
   "WHERE product_id=? AND source_id=? AND sales_value IS NOT NULL "+
-  "AND sales_precision IN ('exact','lower_bound','approximate') "+
+  "AND sales_precision IN ('exact','lower_bound','approximate') AND observed_at<=? "+
   "ORDER BY observed_at DESC,id DESC LIMIT ?"
  );
  for(const id of productIds){
-  const rows=statement.all(id,sourceId,cappedLimit) as Array<{
+  const rows=statement.all(id,sourceId,cutoff,cappedLimit) as Array<{
     observed_at:number;sales_value:number;sales_raw_text:string|null;
     sales_precision:SalesTrendPoint['precision'];
   }>;
@@ -63,7 +64,8 @@ export function getHotProductScores(
  d:Database.Database,
  productIds:readonly string[],
  sourceId='xhs-browser',
- now=Date.now()
+ now=Date.now(),
+ batchDate?:string
 ):Record<string,HotProductScore>{
  const result:Record<string,HotProductScore>=Object.create(null);
  const dayMs=86400000,chinaOffsetMs=8*3600000;
@@ -75,10 +77,16 @@ export function getHotProductScores(
   "WHERE product_id=? AND source_id=? AND observed_at>=? AND observed_at<? "+
   "AND sales_value IS NOT NULL ORDER BY observed_at DESC,id DESC LIMIT 1"
  );
+ const batchSample=d.prepare(
+  "SELECT o.observed_at,o.sales_value,o.sales_precision,o.price_minor,o.price_kind FROM product_observations o "+
+  "JOIN collection_jobs j ON j.id=o.job_id WHERE o.product_id=? AND o.source_id=? AND j.status='succeeded' "+
+  "AND j.idempotency_key='daily:'||j.binding_id||':'||? AND o.sales_value IS NOT NULL LIMIT 1"
+ );
+ const priorDate=batchDate?new Date(Date.parse(batchDate+'T00:00:00Z')-dayMs).toISOString().slice(0,10):null;
  type Sample={observed_at:number;sales_value:number;sales_precision:string;price_minor:number|null;price_kind:string};
  for(const id of productIds){
-  const today=latestInDay.get(id,sourceId,todayStart,todayStart+dayMs) as Sample|undefined;
-  const yesterday=latestInDay.get(id,sourceId,yesterdayStart,todayStart) as Sample|undefined;
+  const today=(batchDate?batchSample.get(id,sourceId,batchDate):latestInDay.get(id,sourceId,todayStart,todayStart+dayMs)) as Sample|undefined;
+  const yesterday=(batchDate?batchSample.get(id,sourceId,priorDate):latestInDay.get(id,sourceId,yesterdayStart,todayStart)) as Sample|undefined;
   const valid=!!today&&!!yesterday&&
    today.sales_precision==='exact'&&yesterday.sales_precision==='exact'&&
    Number.isSafeInteger(today.sales_value)&&Number.isSafeInteger(yesterday.sales_value)&&

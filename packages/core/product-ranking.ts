@@ -65,7 +65,7 @@ export function sortProducts<T extends SortableProduct>(
     return points?.length?points[points.length-1].sales:null;
    }
    case 'price':return product.price_minor;
-   case 'lastCollected':return product.observed_at??product.last_success_at;
+   case 'lastCollected':return 'observed_at' in product?product.observed_at:product.last_success_at;
    case 'recommended':return null;
   }
  };

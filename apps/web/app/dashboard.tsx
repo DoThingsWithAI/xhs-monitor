@@ -5,6 +5,8 @@ import {sourceBlockingReason} from '@/packages/core/source-readiness';
 import {validateSourceForm} from '@/packages/core/source-form-validation';
 import {sortProducts,type ProductSortKey} from '@/packages/core/product-ranking';
 import {SalesSparkline,type SalesTrendPoint} from './sales-sparkline';
+type RankingBatch={date:string;total:number;finished:number;succeeded:number;state:'empty'|'pending'|'failed'|'published'};
+type RankingInfo={selected:RankingBatch|null;latest:RankingBatch|null;dates:string[]};
 type HotProductScore={rate:number|null;todaySales:number|null;productValueCents:number|null;observedAt:number|null;baselineAt:number|null};
 type Product={id:string;title:string|null;shop_name:string|null;category:string|null;canonical_url:string;monitor_status:string;hot_threshold:number;binding_status:string;last_success_at:number|null;last_attempt_at:number|null;next_due_at:number|null;sales_raw_text:string|null;sales_precision:string|null;price_minor:number|null;observed_at:number|null;consecutive_failures:number;latest_job_status:string|null;latest_job_idempotency_key:string|null;manual_retry_available:number;latest_error_code:string|null;latest_error_diagnostic:string|null;image_urls:string[];trend_points:SalesTrendPoint[];hot_score:HotProductScore|null;shop_rating_raw_text:string|null;shop_rating_hundredths:number|null;shop_sales_raw_text:string|null;shop_sales_precision:string|null;shop_followers_raw_text:string|null;shop_followers_precision:string|null;};
 type Source={id:string;enabled:number;automated_access_allowed:number;storage_allowed:number;analysis_allowed:number;permission_basis:string;permission_expires_at:number|null;selectors_json:string;};
@@ -75,6 +77,7 @@ function ProductCover({urls,title,onPreview}:{urls:string[];title:string;onPrevi
 
 export default function Dashboard({username}:{username:string}){
  const [tab,setTab]=useState('products'),[products,setProducts]=useState<Product[]>([]),[stats,setStats]=useState<Stats|null>(null);
+ const [ranking,setRanking]=useState<RankingInfo|null>(null),[rankingDate,setRankingDate]=useState('');
  const [sortBy,setSortBy]=useState<ProductSortKey>('recommended');
  const sortedProducts=useMemo(()=>sortProducts(products,sortBy),[products,sortBy]);
  const failedRetryCount=useMemo(()=>products.filter(product=>product.manual_retry_available===1).length,[products]);
@@ -94,10 +97,10 @@ export default function Dashboard({username}:{username:string}){
  const [sourceForm,setSourceForm]=useState({enabled:false,automated_access_allowed:false,storage_allowed:false,analysis_allowed:false,permission_basis:'',titleSelector:XHS_GOODS_SELECTORS.title as string,salesSelector:XHS_GOODS_SELECTORS.sales as string,priceSelector:XHS_GOODS_SELECTORS.price as string,shopSelector:XHS_GOODS_SELECTORS.shop as string,shopRatingSelector:XHS_GOODS_SELECTORS.shopRating as string,shopStatsSelector:XHS_GOODS_SELECTORS.shopStats as string});
  const refresh=useCallback(async()=>{
   try{
-   const [p,s,r,a,so]=await Promise.all([api<Product[]>('/api/products'),api<{stats:Stats}>('/api/system'),api<Run[]>('/api/runs'),api<Alert[]>('/api/alerts'),api<Source[]>('/api/sources')]);
-   setProducts(p);setStats(s.stats);setRuns(r);setAlerts(a);setSources(so);
+   const [p,s,r,a,so]=await Promise.all([api<{products:Product[];ranking:RankingInfo}>('/api/products?view=ranking'+(rankingDate?'&date='+encodeURIComponent(rankingDate):'')),api<{stats:Stats}>('/api/system'),api<Run[]>('/api/runs'),api<Alert[]>('/api/alerts'),api<Source[]>('/api/sources')]);
+   setProducts(p.products);setRanking(p.ranking);setStats(s.stats);setRuns(r);setAlerts(a);setSources(so);
   }catch(e){setMessage(e instanceof Error?e.message:'加载失败');}
- },[]);
+ },[rankingDate]);
  useEffect(()=>{void refresh();const id=setInterval(()=>void refresh(),45000);return()=>clearInterval(id);},[refresh]);
  useEffect(()=>{
   if(!sources[0])return;
@@ -259,25 +262,27 @@ export default function Dashboard({username}:{username:string}){
    </section>}
    {tab==='products'&&<section className="panel monitored-products">
      <div className="panel-head product-list-toolbar">
-      <div className="product-list-heading"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 每个商品显示最近 30 次有效观察</span></div>
+      <div className="product-list-heading"><h2>商品销量趋势</h2><span className="muted">{products.length} 个商品 · 数据日期：{ranking?.selected?.date??'暂无已发布批次'}</span></div>
       <div className="product-list-controls">
+       <label className="product-sort-control"><span>数据日期</span><select aria-label="数据日期" value={rankingDate} onChange={e=>setRankingDate(e.target.value)}><option value="">最新已发布批次</option>{ranking?.dates.map(day=><option key={day} value={day}>{day}</option>)}</select></label>
        <button type="button" className="secondary" onClick={()=>void retryFailedProducts()} disabled={retryingFailed||failedRetryCount===0}>
         {retryingFailed?'正在重新排队…':'重新抓取失败商品（'+failedRetryCount+'）'}
        </button>
        <label className="product-sort-control">
        <span>排序方式</span>
        <select aria-label="商品排序方式" value={sortBy} onChange={event=>setSortBy(event.target.value as ProductSortKey)}>
-        <option value="recommended">默认推荐（商品价值 → 爆品值 → 今日新增销量）</option>
+        <option value="recommended">默认推荐（商品价值 → 爆品值 → 本期日销量）</option>
         <option value="productValue">商品价值（高 → 低）</option>
         <option value="hotRate">爆品值（高 → 低）</option>
-        <option value="todaySales">今日新增销量（高 → 低）</option>
+        <option value="todaySales">本期日销量（高 → 低）</option>
         <option value="totalSales">商品累计已售（高 → 低）</option>
-        <option value="price">当前展示价格（高 → 低）</option>
+        <option value="price">批次展示价格（高 → 低）</option>
         <option value="lastCollected">最近采集时间（新 → 旧）</option>
        </select>
        </label>
       </div>
      </div>
+     <p className="footnote" role="status">{ranking?.latest?('最新采集批次 '+ranking.latest.date+' · '+(ranking.latest.state==='pending'?'采集中 '+ranking.latest.finished+'/'+ranking.latest.total+'，继续展示已发布数据':ranking.latest.state==='published'?'采集结束，成功 '+ranking.latest.succeeded+'/'+ranking.latest.total:ranking.latest.state==='failed'?'全部未成功，保留旧榜单':'无计划任务，保留旧榜单')):'等待每日 19:00 采集批次'}。未获得本期有效日增量的商品不参与默认排名。</p>
      <p className="footnote">仅重新排队来源仍获授权、商品仍启用且已结束自动重试的失败任务；验证码、访问限制和权限阻断不会被强制重抓。相同来源仍遵守请求间隔。</p>
      {products.length===0?<p className="empty">还没有商品。添加链接后，商品卡片将在这里出现；只有真实采集数据才会形成折线图。</p>:
       <div className="product-card-grid">
@@ -296,8 +301,8 @@ export default function Dashboard({username}:{username:string}){
          </div>
          <div className="product-card-kpis">
           <div><small>最近有效商品已售</small><strong>{latest?(latest.sales_raw_text||latest.sales.toLocaleString('zh-CN')):'—'}</strong></div>
-          <div><small>爆品值（今日新增－预值）/累计已售</small><strong title={hot?.rate!==null&&hot?.rate!==undefined?'对比 '+date(hot.baselineAt)+' 与 '+date(hot.observedAt)+' 两次采集的展示销量':'需今日和昨日均有精确销量记录'}>{typeof hot?.rate==='number'?(hot.rate*100).toFixed(2)+'%':'—'}</strong></div>
-          <div><small>今日新增销量（快照估算）</small><strong>{typeof hot?.todaySales==='number'?hot.todaySales.toLocaleString('zh-CN'):'—'}</strong></div>
+          <div><small>爆品值（本期日销量－预值）/累计已售</small><strong title={hot?.rate!==null&&hot?.rate!==undefined?'对比 '+date(hot.baselineAt)+' 与 '+date(hot.observedAt)+' 两次采集的展示销量':'需本期及前一日常规批次均有精确销量记录'}>{typeof hot?.rate==='number'?(hot.rate*100).toFixed(2)+'%':'—'}</strong></div>
+          <div><small>本期日销量（快照估算）</small><strong>{typeof hot?.todaySales==='number'?hot.todaySales.toLocaleString('zh-CN'):'—'}</strong>{ranking?.selected&&hot?.todaySales==null&&<small>{hot?.observedAt?'缺少有效日增量':'本期未更新'}</small>}</div>
            <div className="hot-threshold-control">
             <small>爆品预值（阈值，默认 2）</small>
             {editingThresholdId===p.id?
@@ -308,8 +313,8 @@ export default function Dashboard({username}:{username:string}){
              </div>:
              <div className="hot-threshold-display"><strong>{p.hot_threshold??2}</strong><button className="text-button" onClick={()=>{setEditingThresholdId(p.id);setThresholdDraft(String(p.hot_threshold??2));}}>调整</button></div>}
            </div>
-          <div><small>商品价值（估算）</small><strong title="商品价值 = 商品当日展示价（代替实际客单价）× 今日新增销量 × 爆品值。缺少精确价格或销量时不计算。">{yuan(hot?.productValueCents)}</strong></div>
-          <div><small>当前展示价格</small><strong>{yuan(p.price_minor)}</strong></div>
+          <div><small>商品价值（估算）</small><strong title="商品价值 = 商品当日展示价（代替实际客单价）× 本期日销量 × 爆品值。缺少精确价格或销量时不计算。">{yuan(hot?.productValueCents)}</strong></div>
+          <div><small>批次展示价格</small><strong>{yuan(p.price_minor)}</strong></div>
           <div><small>卖家口碑</small><strong>{p.shop_rating_raw_text??'—'}</strong></div>
           <div><small>店铺已售 / 粉丝</small><strong className="product-card-small-number">{p.shop_sales_raw_text??'—'} / {p.shop_followers_raw_text??'—'}</strong></div>
          </div>
@@ -332,7 +337,7 @@ export default function Dashboard({username}:{username:string}){
         </article>;
        })}
       </div>}
-     <p className="footnote">爆品值 =（今日新增销量－爆品预值）÷当前累计已售，爆品预值按商品设置，默认 2，可修改。按北京时间划分日期；爆品值可能是负数。商品价值（估算）= 当天商品展示价 × 今日新增销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在当日有明确展示价格且今昨均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
+     <p className="footnote">爆品值 =（本期日销量－爆品预值）÷本期累计已售，爆品预值按商品设置，默认 2，可修改。按北京时间计划批次划分日期；爆品值可能是负数。商品价值（估算）= 当天商品展示价 × 本期日销量（快照估算）× 爆品值；展示价不是实际客单价，因此不代表真实销售额或利润。仅在当日有明确展示价格且本期和前一日批次均有精确累计销量时计算；缺值、起售价、近似/下界销量或异常回退均显示“—”，不误记为 0。</p>
     </section>}
 
    {tab==='runs'&&<section className="panel"><h2>最新运行记录</h2><div className="table-scroll"><table><thead><tr><th>商品</th><th>开始</th><th>状态</th><th>错误码</th><th>诊断摘要</th><th>尝试</th></tr></thead><tbody>{runs.map(r=><tr key={r.id}><td>{r.title||r.canonical_url.slice(0,42)}</td><td>{date(r.started_at)}</td><td>{r.result||'运行中'}</td><td>{r.error_code||'—'}</td><td>{diagnosticLabel(r.error_message_redacted)||'—'}</td><td>{r.attempt_no}</td></tr>)}</tbody></table></div>{!runs.length&&<p className="muted">尚无运行记录。仅有排队任务不代表抓取成功。</p>}</section>}
